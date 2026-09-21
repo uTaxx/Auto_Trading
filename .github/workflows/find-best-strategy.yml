@@ -25,10 +25,10 @@ on:
         description: '전략 키 -> 변수별 후보값 목록 JSON(대시보드가 만들어 보낸다). 예: {"lump_sum":{},"dca":{"amount":[100000,200000],"interval_days":[1,5]}}'
         required: true
       take_profit_pct:
-        description: "모든 후보에 똑같이 적용할 익절선(비율, 예: 0.1). 비워 두면 안 씀"
+        description: "시험할 익절선 후보(비율, 쉼표로 구분, 예: 0.1,0.2,0.3). 비워 두면 그 조건 없이 계산"
         required: false
       stop_loss_pct:
-        description: "모든 후보에 똑같이 적용할 손절선(비율). 비워 두면 안 씀"
+        description: "시험할 손절선 후보(비율, 쉼표로 구분). 비워 두면 그 조건 없이 계산"
         required: false
       upload:
         description: "결과를 02_백테스트결과에 올린다"

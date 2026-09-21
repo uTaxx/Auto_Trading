@@ -2,9 +2,12 @@
 가장 좋은 조합을 찾는다.
 
 종목 하나, 총자본, 조회기간만 받는다. 전략별 변수는 --search로 받는
-후보값 목록(각 값을 하나씩 다 시험한다)을 쓴다. 사람이 값을 하나씩
-넣지 않아도 되지만, 그 후보 목록 자체는 화면에 미리 채워져 있고 사람이
-바꿀 수 있다(자세한 규칙은 auto_trading/optimize.py를 본다).
+후보값 목록(각 값을 하나씩 다 시험한다)을 쓴다. 익절선·손절선도
+--take-profit-pct/--stop-loss-pct에 쉼표로 구분한 후보값 목록으로 받아서
+다른 변수와 똑같이 조합에 곱한다(2026-09-21에 값 하나만 받던 것에서
+바꿨다). 사람이 값을 하나씩 넣지 않아도 되지만, 그 후보 목록 자체는
+화면에 미리 채워져 있고 사람이 바꿀 수 있다(자세한 규칙은
+auto_trading/optimize.py를 본다).
 
 결과는 화면 4번(결과 조회)이 그대로 읽을 수 있도록 run_backtest.py와
 같은 모양의 JSON으로 02_백테스트결과에 남긴다. 1등만 남기지 않고 계산한
@@ -44,13 +47,32 @@ def _parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--take-profit-pct", type=float, default=None, help="모든 후보에 똑같이 적용할 익절선(비율, 예: 0.1). 안 주면 안 씀"
+        "--take-profit-pct",
+        default=None,
+        help="시험할 익절선 후보(비율, 쉼표로 구분, 예: 0.1,0.2,0.3). 안 주면 그 조건 없이 계산",
     )
     parser.add_argument(
-        "--stop-loss-pct", type=float, default=None, help="모든 후보에 똑같이 적용할 손절선(비율). 안 주면 안 씀"
+        "--stop-loss-pct",
+        default=None,
+        help="시험할 손절선 후보(비율, 쉼표로 구분). 안 주면 그 조건 없이 계산",
     )
     parser.add_argument("--upload", action="store_true", help="결과를 02_백테스트결과에 올린다")
     return parser.parse_args()
+
+
+def _parse_float_list(text: str | None) -> list[float] | None:
+    if not text:
+        return None
+    values: list[float] = []
+    for part in text.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            values.append(float(part))
+        except ValueError as e:
+            raise SystemExit(f"'{part}'는 올바른 숫자가 아닙니다: {e}") from e
+    return values or None
 
 
 def main() -> None:
@@ -64,7 +86,9 @@ def main() -> None:
     if not isinstance(search, dict) or not search:
         raise SystemExit("--search는 전략 키마다 후보값을 담은 JSON 객체여야 합니다.")
 
-    configs = build_strategy_configs(search, args.take_profit_pct, args.stop_loss_pct)
+    take_profit_candidates = _parse_float_list(args.take_profit_pct)
+    stop_loss_candidates = _parse_float_list(args.stop_loss_pct)
+    configs = build_strategy_configs(search, take_profit_candidates, stop_loss_candidates)
     print(f"조합 {len(configs)}개를 계산합니다(최대 {MAX_COMBINATIONS}개까지 허용).")
 
     service = _build_service()
@@ -86,8 +110,8 @@ def main() -> None:
             "생성시각_KST": now_kst.strftime("%Y-%m-%d %H:%M:%S"),
             "종목": [symbol],
             "검색조건": search,
-            "익절선": args.take_profit_pct,
-            "손절선": args.stop_loss_pct,
+            "익절선_후보": take_profit_candidates,
+            "손절선_후보": stop_loss_candidates,
             "자본금": args.capital,
             "조회기간": {"시작": args.start, "종료": args.end},
             "요약": rows,

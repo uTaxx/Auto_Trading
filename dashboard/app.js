@@ -1048,6 +1048,11 @@
       .map(function (s) { return parseFloat(s.trim()); })
       .filter(function (n) { return !isNaN(n); });
   }
+  // 익절·손절 후보는 사람에게는 %로 보여주고 보내기 직전에 비율로 바꾼다
+  // (다른 화면의 익절·손절 입력칸과 같은 방식).
+  function parsePercentListText(text) {
+    return parseFloatListText(text).map(function (n) { return n / 100; });
+  }
 
   function collectOptimizeStrategy(key) {
     var schema = STRATEGY_SEARCH_SCHEMAS[key];
@@ -1077,6 +1082,10 @@
   function updateComboCount() {
     var total = 0;
     var firstError = null;
+    // 익절·손절 후보도 다른 변수처럼 조합에 곱해진다. 비워 두면 그 조건
+    // 없이 계산하는 조합 하나(배수 1)로 본다.
+    var tpCount = Math.max(1, parsePercentListText(document.getElementById("opt-take-profit").value).length);
+    var slCount = Math.max(1, parsePercentListText(document.getElementById("opt-stop-loss").value).length);
     Object.keys(STRATEGY_SEARCH_SCHEMAS).forEach(function (key) {
       var block = optBlocks[key];
       if (!block.checkbox.checked) return;
@@ -1085,7 +1094,7 @@
         if (!firstError) firstError = result.error;
         return;
       }
-      total += result.count;
+      total += result.count * tpCount * slCount;
     });
 
     if (firstError) {
@@ -1177,6 +1186,8 @@
 
   document.getElementById("opt-start").value = yearsAgoStr(5);
   document.getElementById("opt-end").value = todayStr();
+  document.getElementById("opt-take-profit").addEventListener("input", updateComboCount);
+  document.getElementById("opt-stop-loss").addEventListener("input", updateComboCount);
 
   var optimizeForm = document.getElementById("form-optimize");
   var optStatus = document.getElementById("opt-status");
@@ -1218,10 +1229,10 @@
       search: JSON.stringify(search),
       upload: true,
     };
-    var tp = parseFloat(document.getElementById("opt-take-profit").value);
-    if (!isNaN(tp)) body.take_profit_pct = tp / 100;
-    var sl = parseFloat(document.getElementById("opt-stop-loss").value);
-    if (!isNaN(sl)) body.stop_loss_pct = sl / 100;
+    var tpCandidates = parsePercentListText(document.getElementById("opt-take-profit").value);
+    if (tpCandidates.length > 0) body.take_profit_pct = tpCandidates;
+    var slCandidates = parsePercentListText(document.getElementById("opt-stop-loss").value);
+    if (slCandidates.length > 0) body.stop_loss_pct = slCandidates;
 
     if (optimizePollTimer) {
       clearTimeout(optimizePollTimer);

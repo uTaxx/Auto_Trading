@@ -105,7 +105,8 @@
       됩니다. <strong>1등만 골라내지 않고 계산한 조합 전부를 순위대로
       남깁니다.</strong> 등락률 기준 비중 조절 매수는 구간을 하나로 단순화해서
       찾습니다(구간을 여러 개 두는 것은 3번 전략 비교에서 직접 설정하세요).
-      익절선·손절선을 넣으면 모든 조합에 똑같이 적용됩니다. 조합이 200개를
+      익절선·손절선도 다른 변수와 똑같이 후보값을 여러 개 넣어서 조합에
+      곱할 수 있습니다(비워 두면 그 조건 없이 계산합니다). 조합이 200개를
       넘으면 계산을 거부합니다. 계산이 끝나면 결과는 위 4번 표에서 그대로
       조회됩니다.</p>
 
@@ -126,11 +127,11 @@
       </div>
 
       <div class="grid-2">
-        <label>목표 수익률(익절, %) — 비워 두면 모든 조합에 안 씀
-          <input type="number" id="opt-take-profit" step="0.1">
+        <label>목표 수익률 후보(익절, %, 쉼표로 구분) — 비워 두면 그 조건 없이 계산
+          <input type="text" id="opt-take-profit" autocomplete="off" spellcheck="false">
         </label>
-        <label>손실 한도(손절, %) — 비워 두면 모든 조합에 안 씀
-          <input type="number" id="opt-stop-loss" step="0.1">
+        <label>손실 한도 후보(손절, %, 쉼표로 구분) — 비워 두면 그 조건 없이 계산
+          <input type="text" id="opt-stop-loss" autocomplete="off" spellcheck="false">
         </label>
       </div>
 

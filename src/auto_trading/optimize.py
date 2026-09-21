@@ -16,9 +16,12 @@
 변수가 돼서 복잡해진다. 그래서 여기서는 구간 하나짜리로만 시험한다.
 여러 구간을 쓰고 싶으면 화면 3번(전략 비교)에서 직접 넣는다.
 
-**익절·손절은 후보로 늘리지 않는다.** 이것까지 후보 목록으로 받으면
-조합 수가 너무 빨리 늘어난다. 이번 검색에서는 하나의 값(또는 안 씀)을
-모든 조합에 똑같이 적용한다.
+**익절·손절도 후보값 목록으로 받는다**(2026-09-21에 바꿈). 처음에는
+값 하나(또는 안 씀)를 모든 조합에 똑같이 적용했는데, 주인이 "익절선은
+각 전략별로 복수로 테스트해야지"라고 지적해서 다른 변수와 같은 방식으로
+바꿨다. 후보를 안 주면(빈 목록) 그 조건 자체를 안 쓴 조합 하나만
+나온다. 후보를 여러 개 주면 전략마다, 그리고 다른 변수 조합마다 그
+후보 수만큼 곱해져서 늘어난다.
 
 **수익률만 보고 고르지 않는다.** 결과마다 최대낙폭도 같이 계산해서
 남긴다(`backtest.summarize_result`). 기본 정렬은 수익률 내림차순이지만,
@@ -89,27 +92,40 @@ def _label_for(key: str, combo: dict) -> str:
 
 def build_strategy_configs(
     search: dict[str, dict[str, list]],
-    take_profit_pct: float | None,
-    stop_loss_pct: float | None,
+    take_profit_candidates: list[float] | None,
+    stop_loss_candidates: list[float] | None,
 ) -> list[dict]:
     """검색 설정(전략 키 -> {변수명: 후보값 목록})을 build_strategy가 바로
-    쓸 수 있는 설정 딕셔너리 목록으로 편다."""
+    쓸 수 있는 설정 딕셔너리 목록으로 편다. 익절·손절 후보도 다른 변수와
+    똑같이 조합에 곱해진다. 후보를 안 주면(None 또는 빈 목록) 그 조건을
+    안 쓴 조합 하나만 나온다."""
+    tp_list: list[float | None] = list(take_profit_candidates) if take_profit_candidates else [None]
+    sl_list: list[float | None] = list(stop_loss_candidates) if stop_loss_candidates else [None]
+
     configs: list[dict] = []
     for key, values in search.items():
         schema = STRATEGY_SEARCH_SCHEMAS.get(key)
         if schema is None:
             raise ValueError(f"모르는 전략 키: {key}")
         for combo in _combinations(schema["params"], values):
-            config: dict[str, Any] = {"key": key, "label": _label_for(key, combo), **combo}
-            if key == "drop_based":
-                threshold = config.pop("threshold_pct")
-                amount = config.pop("amount")
-                config["tiers"] = [[threshold, amount]]
-            if take_profit_pct is not None:
-                config["take_profit_pct"] = take_profit_pct
-            if stop_loss_pct is not None:
-                config["stop_loss_pct"] = stop_loss_pct
-            configs.append(config)
+            for take_profit_pct in tp_list:
+                for stop_loss_pct in sl_list:
+                    label_parts = dict(combo)
+                    if take_profit_pct is not None:
+                        label_parts["take_profit_pct"] = take_profit_pct
+                    if stop_loss_pct is not None:
+                        label_parts["stop_loss_pct"] = stop_loss_pct
+
+                    config: dict[str, Any] = {"key": key, "label": _label_for(key, label_parts), **combo}
+                    if key == "drop_based":
+                        threshold = config.pop("threshold_pct")
+                        amount = config.pop("amount")
+                        config["tiers"] = [[threshold, amount]]
+                    if take_profit_pct is not None:
+                        config["take_profit_pct"] = take_profit_pct
+                    if stop_loss_pct is not None:
+                        config["stop_loss_pct"] = stop_loss_pct
+                    configs.append(config)
 
     if len(configs) > MAX_COMBINATIONS:
         raise ValueError(
