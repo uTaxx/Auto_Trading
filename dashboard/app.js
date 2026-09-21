@@ -68,14 +68,23 @@
   // 넣지 않아도 되지만, 그 후보값 목록 자체는 화면에 미리 채워져 있고
   // 사람이 바꿀 수 있다. 등락률 기준 비중 조절 매수는 여기서는 구간을
   // 하나로 단순화한다(여러 구간은 3번 전략 비교에서 직접 설정한다).
+  //
+  // 익절·손절 후보는 매수 방식마다 따로 받는다(2026-09-21에 검색 전체에
+  // 공통으로 걸던 값에서 바꿨다. 매수 방식마다 어울리는 익절·손절 폭이
+  // 다를 수 있다는 지적을 받았다). 그래서 EXIT_PARAMS를 각 전략의 params
+  // 끝에 붙인다.
+  var EXIT_PARAMS = [
+    { name: "take_profit_pct", label: "목표 수익률 후보(익절, %, 쉼표로 구분) — 비워 두면 안 씀", type: "percent_optional" },
+    { name: "stop_loss_pct", label: "손실 한도 후보(손절, %, 쉼표로 구분) — 비워 두면 안 씀", type: "percent_optional" },
+  ];
   var STRATEGY_SEARCH_SCHEMAS = {
-    lump_sum: { label: "일회 매수", params: [] },
+    lump_sum: { label: "일회 매수", params: [].concat(EXIT_PARAMS) },
     dca: {
       label: "적립식 매수",
       params: [
         { name: "amount", label: "회당 매수 금액 후보(원, 쉼표로 구분)", type: "int_list", suggested: "50000, 100000, 200000" },
         { name: "interval_days", label: "매수 간격 후보(거래일, 쉼표로 구분)", type: "int_list", suggested: "1, 5, 10" },
-      ],
+      ].concat(EXIT_PARAMS),
     },
     dca_ma: {
       label: "적립식 매수 + 이동평균선 조건",
@@ -92,7 +101,7 @@
             { value: "above", label: "이동평균선 위일 때만" },
           ],
         },
-      ],
+      ].concat(EXIT_PARAMS),
     },
     drop_based: {
       label: "등락률 기준 비중 조절 매수(구간 하나로 단순화)",
@@ -101,7 +110,7 @@
         { name: "lookback_days", label: "등락률 기준 기간 후보(거래일, 쉼표로 구분)", type: "int_list", suggested: "1, 5, 10" },
         { name: "threshold_pct", label: "등락률 임계값 후보(%, 쉼표로 구분)", type: "float_list", suggested: "-3, -5, -10" },
         { name: "amount", label: "그 구간 매수 금액 후보(원, 쉼표로 구분)", type: "int_list", suggested: "100000, 200000, 300000" },
-      ],
+      ].concat(EXIT_PARAMS),
     },
   };
   var OPT_MAX_COMBINATIONS = 200;
@@ -1067,8 +1076,21 @@
         list = field.checkboxes.filter(function (c) { return c.checked; }).map(function (c) { return c.value; });
       } else if (param.type === "int_list") {
         list = parseIntListText(field.input.value);
+      } else if (param.type === "percent_optional") {
+        list = parsePercentListText(field.input.value);
       } else {
         list = parseFloatListText(field.input.value);
+      }
+
+      // 익절·손절 후보(percent_optional)는 선택값이다. 비워 두면 그
+      // 조건 없이 계산하는 조합 하나로 보고, 조합 수도 늘리지 않는다.
+      // 다른 변수는 비우면 오류다.
+      if (param.type === "percent_optional") {
+        if (list.length > 0) {
+          values[param.name] = list;
+          count *= list.length;
+        }
+        continue;
       }
       if (list.length === 0) {
         return { error: schema.label + "의 '" + param.label + "'에 후보값을 하나 이상 넣으세요." };
@@ -1082,10 +1104,6 @@
   function updateComboCount() {
     var total = 0;
     var firstError = null;
-    // 익절·손절 후보도 다른 변수처럼 조합에 곱해진다. 비워 두면 그 조건
-    // 없이 계산하는 조합 하나(배수 1)로 본다.
-    var tpCount = Math.max(1, parsePercentListText(document.getElementById("opt-take-profit").value).length);
-    var slCount = Math.max(1, parsePercentListText(document.getElementById("opt-stop-loss").value).length);
     Object.keys(STRATEGY_SEARCH_SCHEMAS).forEach(function (key) {
       var block = optBlocks[key];
       if (!block.checkbox.checked) return;
@@ -1094,7 +1112,7 @@
         if (!firstError) firstError = result.error;
         return;
       }
-      total += result.count * tpCount * slCount;
+      total += result.count;
     });
 
     if (firstError) {
@@ -1186,8 +1204,6 @@
 
   document.getElementById("opt-start").value = yearsAgoStr(5);
   document.getElementById("opt-end").value = todayStr();
-  document.getElementById("opt-take-profit").addEventListener("input", updateComboCount);
-  document.getElementById("opt-stop-loss").addEventListener("input", updateComboCount);
 
   var optimizeForm = document.getElementById("form-optimize");
   var optStatus = document.getElementById("opt-status");
@@ -1229,10 +1245,6 @@
       search: JSON.stringify(search),
       upload: true,
     };
-    var tpCandidates = parsePercentListText(document.getElementById("opt-take-profit").value);
-    if (tpCandidates.length > 0) body.take_profit_pct = tpCandidates;
-    var slCandidates = parsePercentListText(document.getElementById("opt-stop-loss").value);
-    if (slCandidates.length > 0) body.stop_loss_pct = slCandidates;
 
     if (optimizePollTimer) {
       clearTimeout(optimizePollTimer);

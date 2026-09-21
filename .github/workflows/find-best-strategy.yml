@@ -22,14 +22,8 @@ on:
         description: "조회 종료일 YYYY-MM-DD"
         required: true
       search:
-        description: '전략 키 -> 변수별 후보값 목록 JSON(대시보드가 만들어 보낸다). 예: {"lump_sum":{},"dca":{"amount":[100000,200000],"interval_days":[1,5]}}'
+        description: '전략 키 -> 변수별 후보값 목록 JSON(대시보드가 만들어 보낸다). 익절선·손절선도 전략마다 이 안에서 받는다. 예: {"lump_sum":{"take_profit_pct":[0.1,0.2]},"dca":{"amount":[100000,200000],"interval_days":[1,5]}}'
         required: true
-      take_profit_pct:
-        description: "시험할 익절선 후보(비율, 쉼표로 구분, 예: 0.1,0.2,0.3). 비워 두면 그 조건 없이 계산"
-        required: false
-      stop_loss_pct:
-        description: "시험할 손절선 후보(비율, 쉼표로 구분). 비워 두면 그 조건 없이 계산"
-        required: false
       upload:
         description: "결과를 02_백테스트결과에 올린다"
         type: boolean
@@ -58,14 +52,10 @@ jobs:
           START: ${{ github.event.inputs.start }}
           END: ${{ github.event.inputs.end }}
           SEARCH: ${{ github.event.inputs.search }}
-          TAKE_PROFIT_PCT: ${{ github.event.inputs.take_profit_pct }}
-          STOP_LOSS_PCT: ${{ github.event.inputs.stop_loss_pct }}
           UPLOAD: ${{ github.event.inputs.upload }}
           GDRIVE_SA_KEY_JSON: ${{ secrets.GDRIVE_SA_KEY_JSON }}
           GDRIVE_IMPERSONATE_EMAIL: master@sondullab.com
         run: |
           ARGS=(--symbol "$SYMBOL" --capital "$CAPITAL" --start "$START" --end "$END" --search "$SEARCH")
-          if [ -n "$TAKE_PROFIT_PCT" ]; then ARGS+=(--take-profit-pct "$TAKE_PROFIT_PCT"); fi
-          if [ -n "$STOP_LOSS_PCT" ]; then ARGS+=(--stop-loss-pct "$STOP_LOSS_PCT"); fi
           if [ "$UPLOAD" = "true" ]; then ARGS+=(--upload); fi
           python scripts/find_best_strategy.py "${ARGS[@]}"

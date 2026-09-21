@@ -16,12 +16,14 @@
 변수가 돼서 복잡해진다. 그래서 여기서는 구간 하나짜리로만 시험한다.
 여러 구간을 쓰고 싶으면 화면 3번(전략 비교)에서 직접 넣는다.
 
-**익절·손절도 후보값 목록으로 받는다**(2026-09-21에 바꿈). 처음에는
-값 하나(또는 안 씀)를 모든 조합에 똑같이 적용했는데, 주인이 "익절선은
-각 전략별로 복수로 테스트해야지"라고 지적해서 다른 변수와 같은 방식으로
-바꿨다. 후보를 안 주면(빈 목록) 그 조건 자체를 안 쓴 조합 하나만
-나온다. 후보를 여러 개 주면 전략마다, 그리고 다른 변수 조합마다 그
-후보 수만큼 곱해져서 늘어난다.
+**익절·손절 후보는 전략별로 따로 받는다**(2026-09-21에 바꿈). 처음에는
+검색 전체에 공통으로 적용할 값 하나(또는 후보 목록 하나)를 만들었는데,
+주인이 "전략별로 익절선·손절선 옵션을 넣으라고, 이 기본 설정 말고"라고
+다시 지적했다. 매수 방식마다 어울리는 익절·손절 폭이 다를 수 있으니,
+`take_profit_pct`/`stop_loss_pct`를 다른 변수(회당 매수 금액, 매수
+간격 같은 것)와 똑같이 각 전략의 params 목록 안에 둔다. 다만 이 둘은
+`optional`이다. 후보를 비워 두면(빈 목록 또는 안 줌) 그 조건 자체를
+안 쓴 조합 하나로 본다. 다른 params는 비우면 오류다.
 
 **수익률만 보고 고르지 않는다.** 결과마다 최대낙폭도 같이 계산해서
 남긴다(`backtest.summarize_result`). 기본 정렬은 수익률 내림차순이지만,
@@ -40,16 +42,36 @@ from .backtest import build_strategy, run_backtest, summarize_result
 
 MAX_COMBINATIONS = 200
 
+# 매수 방식과 상관없이 build_strategy가 항상 받는 값이라, 전략마다 같은
+# 두 항목을 params 끝에 붙인다. 값은 비율(0.1 = 10%)로 받는다.
+_EXIT_PARAMS: list[dict[str, Any]] = [
+    {
+        "name": "take_profit_pct",
+        "label": "목표 수익률 후보(익절, 비율. 예: 0.1 = 10%. 비워 두면 안 씀)",
+        "type": "float",
+        "optional": True,
+        "suggested": [],
+    },
+    {
+        "name": "stop_loss_pct",
+        "label": "손실 한도 후보(손절, 비율. 비워 두면 안 씀)",
+        "type": "float",
+        "optional": True,
+        "suggested": [],
+    },
+]
+
 STRATEGY_SEARCH_SCHEMAS: dict[str, dict[str, Any]] = {
     "lump_sum": {
         "label": "일회 매수",
-        "params": [],
+        "params": [*_EXIT_PARAMS],
     },
     "dca": {
         "label": "적립식 매수",
         "params": [
             {"name": "amount", "label": "회당 매수 금액 후보(원)", "type": "int", "suggested": [50000, 100000, 200000]},
             {"name": "interval_days", "label": "매수 간격 후보(거래일)", "type": "int", "suggested": [1, 5, 10]},
+            *_EXIT_PARAMS,
         ],
     },
     "dca_ma": {
@@ -59,6 +81,7 @@ STRATEGY_SEARCH_SCHEMAS: dict[str, dict[str, Any]] = {
             {"name": "interval_days", "label": "매수 간격 후보(거래일)", "type": "int", "suggested": [1, 5, 10]},
             {"name": "ma_window", "label": "이동평균 기간 후보(거래일)", "type": "int", "suggested": [20, 60, 120]},
             {"name": "buy_when", "label": "조건 후보", "type": "choice_multi", "suggested": ["below", "above"]},
+            *_EXIT_PARAMS,
         ],
     },
     "drop_based": {
@@ -68,64 +91,56 @@ STRATEGY_SEARCH_SCHEMAS: dict[str, dict[str, Any]] = {
             {"name": "lookback_days", "label": "등락률 기준 기간 후보(거래일)", "type": "int", "suggested": [1, 5, 10]},
             {"name": "threshold_pct", "label": "등락률 임계값 후보(%)", "type": "float", "suggested": [-3, -5, -10]},
             {"name": "amount", "label": "그 구간 매수 금액 후보(원)", "type": "int", "suggested": [100000, 200000, 300000]},
+            *_EXIT_PARAMS,
         ],
     },
 }
 
 
 def _combinations(params: list[dict], values: dict[str, list]) -> list[dict]:
-    """params 순서대로 후보값을 곱해서 조합 딕셔너리 목록을 만든다."""
+    """params 순서대로 후보값을 곱해서 조합 딕셔너리 목록을 만든다.
+    optional로 표시된 변수는 후보가 없으면(빈 목록 또는 안 줌) None
+    하나짜리 후보로 보고, 조합에도 값 None으로 들어간다(나중에
+    build_strategy_configs가 없앤다)."""
     if not params:
         return [{}]
     names = [p["name"] for p in params]
-    lists = [values[name] for name in names]
+    lists = []
+    for p in params:
+        candidates = values.get(p["name"])
+        if p.get("optional"):
+            lists.append(list(candidates) if candidates else [None])
+        else:
+            lists.append(values[p["name"]])
     return [dict(zip(names, combo)) for combo in product(*lists)]
 
 
 def _label_for(key: str, combo: dict) -> str:
     base = STRATEGY_SEARCH_SCHEMAS[key]["label"]
-    if not combo:
+    active = {k: v for k, v in combo.items() if v is not None}
+    if not active:
         return base
-    parts = ", ".join(f"{k}={v}" for k, v in combo.items())
+    parts = ", ".join(f"{k}={v}" for k, v in active.items())
     return f"{base} ({parts})"
 
 
-def build_strategy_configs(
-    search: dict[str, dict[str, list]],
-    take_profit_candidates: list[float] | None,
-    stop_loss_candidates: list[float] | None,
-) -> list[dict]:
+def build_strategy_configs(search: dict[str, dict[str, list]]) -> list[dict]:
     """검색 설정(전략 키 -> {변수명: 후보값 목록})을 build_strategy가 바로
-    쓸 수 있는 설정 딕셔너리 목록으로 편다. 익절·손절 후보도 다른 변수와
-    똑같이 조합에 곱해진다. 후보를 안 주면(None 또는 빈 목록) 그 조건을
-    안 쓴 조합 하나만 나온다."""
-    tp_list: list[float | None] = list(take_profit_candidates) if take_profit_candidates else [None]
-    sl_list: list[float | None] = list(stop_loss_candidates) if stop_loss_candidates else [None]
-
+    쓸 수 있는 설정 딕셔너리 목록으로 편다. 익절·손절도 전략별로 다른
+    변수(회당 매수 금액 등)와 똑같이 후보값 목록으로 받는다."""
     configs: list[dict] = []
     for key, values in search.items():
         schema = STRATEGY_SEARCH_SCHEMAS.get(key)
         if schema is None:
             raise ValueError(f"모르는 전략 키: {key}")
         for combo in _combinations(schema["params"], values):
-            for take_profit_pct in tp_list:
-                for stop_loss_pct in sl_list:
-                    label_parts = dict(combo)
-                    if take_profit_pct is not None:
-                        label_parts["take_profit_pct"] = take_profit_pct
-                    if stop_loss_pct is not None:
-                        label_parts["stop_loss_pct"] = stop_loss_pct
-
-                    config: dict[str, Any] = {"key": key, "label": _label_for(key, label_parts), **combo}
-                    if key == "drop_based":
-                        threshold = config.pop("threshold_pct")
-                        amount = config.pop("amount")
-                        config["tiers"] = [[threshold, amount]]
-                    if take_profit_pct is not None:
-                        config["take_profit_pct"] = take_profit_pct
-                    if stop_loss_pct is not None:
-                        config["stop_loss_pct"] = stop_loss_pct
-                    configs.append(config)
+            active = {k: v for k, v in combo.items() if v is not None}
+            config: dict[str, Any] = {"key": key, "label": _label_for(key, combo), **active}
+            if key == "drop_based":
+                threshold = config.pop("threshold_pct")
+                amount = config.pop("amount")
+                config["tiers"] = [[threshold, amount]]
+            configs.append(config)
 
     if len(configs) > MAX_COMBINATIONS:
         raise ValueError(
