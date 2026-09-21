@@ -118,7 +118,8 @@ label.row {
 input[type="text"],
 input[type="number"],
 input[type="date"],
-select {
+select,
+textarea {
   width: 100%;
   font-size: 14px;
   padding: 8px 10px;
@@ -129,6 +130,10 @@ select {
   margin-top: 4px;
   font-family: inherit;
 }
+textarea { font-family: ui-monospace, monospace; font-size: 12.5px; line-height: 1.5; resize: vertical; }
+
+.ai-prompt-box { margin: 10px 0; }
+.ai-prompt-box button { margin-top: 8px; }
 
 input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); }
 

@@ -172,6 +172,19 @@
             </label>
           </div>
 
+          <div class="row">
+            <button type="button" id="opt-ai-prompt">AI 분석용 프롬프트 작성</button>
+          </div>
+          <div id="opt-ai-prompt-box" class="ai-prompt-box" hidden>
+            <p class="hint">아래 프롬프트를 복사해서 클로드에 붙여넣으면, 이 종목의 과거
+              시세와 전략 비교 기록을 구글 드라이브에서 직접 찾아보고 어떤 변수값을
+              시험하면 좋을지 판단을 받을 수 있습니다. 이 화면이 대신 계산해 주는
+              것은 아닙니다.</p>
+            <textarea id="opt-ai-prompt-text" rows="16" readonly></textarea>
+            <button type="button" id="opt-ai-prompt-copy">프롬프트 복사</button>
+            <p class="status" id="opt-ai-prompt-status" role="status" aria-live="polite"></p>
+          </div>
+
           <h3>찾아볼 매수 방식과 변수 후보</h3>
           <div id="optimize-strategy-list"></div>
 

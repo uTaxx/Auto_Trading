@@ -1801,4 +1801,91 @@
 
     return box;
   }
+
+  // ── AI 분석용 프롬프트 작성 (최적 조건 찾기) ────────────
+  // 여기서 Claude를 직접 부르지는 않는다. 사람이 이 프롬프트를 복사해서
+  // Claude(구글 드라이브를 읽을 수 있는 대화)에 붙여넣으면, 그 종목의
+  // 과거 시세와 이미 쌓인 백테스트 결과를 보고 어떤 변수 후보값이
+  // 그럴듯한지 판단을 돕는다. 판단은 사람이 그 대화에서 받고, 받은
+  // 값을 이 화면의 후보값 칸에 직접 옮겨 적는다.
+  var optAiPromptBtn = document.getElementById("opt-ai-prompt");
+  var optAiPromptBox = document.getElementById("opt-ai-prompt-box");
+  var optAiPromptText = document.getElementById("opt-ai-prompt-text");
+  var optAiPromptCopyBtn = document.getElementById("opt-ai-prompt-copy");
+  var optAiPromptStatus = document.getElementById("opt-ai-prompt-status");
+
+  function buildAiPrompt() {
+    var symbol = document.getElementById("opt-symbol").value.trim().toUpperCase();
+    var capital = document.getElementById("opt-capital").value;
+    var start = document.getElementById("opt-start").value;
+    var end = document.getElementById("opt-end").value;
+
+    var lines = [];
+    lines.push("구글 드라이브의 Auto_Trading 폴더에서 아래 자료를 찾아 보고 판단해 주세요.");
+    lines.push("- 이 종목의 과거 시세: 01_시세원본/" + (symbol || "<종목>") + "/daily.csv");
+    lines.push("- 이 종목의 지난 백테스트 결과(엑셀): 02_백테스트결과/" + (symbol || "<종목>") + "/ 폴더");
+    lines.push("- 여러 종목을 견준 참고 자료(엑셀): 02_백테스트결과/종목비교결과/ 폴더");
+    lines.push("");
+    lines.push("조건:");
+    lines.push("- 종목: " + (symbol || "(비워짐, 먼저 채워 주세요)"));
+    lines.push("- 총자본: " + (capital ? Number(capital).toLocaleString("ko-KR") + "원" : "(비워짐, 먼저 채워 주세요)"));
+    lines.push("- 조회기간: " + (start || "(비워짐)") + " ~ " + (end || "(비워짐)"));
+    if (
+      lastSimilarSelection &&
+      lastSimilarSelection.symbol === symbol &&
+      lastSimilarSelection.match.startDate === start &&
+      lastSimilarSelection.match.endDate === end
+    ) {
+      lines.push(
+        "- 참고: 이 조회기간은 '유사 과거 불러오기'로 고른 " + lastSimilarSelection.windowDays +
+        "거래일 유사 구간 1순위입니다."
+      );
+    }
+    lines.push("");
+    lines.push("요청:");
+    lines.push("위 자료를 참고해서, 아래 네 가지 매수 방식마다 어떤 변수 후보값을 시험해 보면");
+    lines.push("좋을지 추천해 주세요. 과거 시세의 어떤 점 때문에 그 값을 골랐는지 근거도 같이");
+    lines.push("적어 주세요. 후보를 곱한 전체 조합 수가 200개를 넘지 않게 해 주세요.");
+    lines.push("");
+    lines.push("1) 일회 매수: 후보값이 없는 방식입니다(그대로 둡니다).");
+    lines.push("2) 적립식 매수: amount(회당 매수 금액, 원), interval_days(매수빈도, 일수)");
+    lines.push("3) 적립식 매수 + 이동평균선 조건: ma_window(이동평균 기간, 거래일),");
+    lines.push("   below_amount/below_interval_days(이동평균선 아래일 때 매수금액·매수빈도),");
+    lines.push("   above_amount/above_interval_days(위일 때 매수금액·매수빈도). 아래·위 중");
+    lines.push("   한쪽만 후보를 줘도 됩니다.");
+    lines.push("4) 등락률 기준 비중 조절 매수(구간 하나로 단순화): interval_days(평가 빈도,");
+    lines.push("   거래일), lookback_days(평가 기준일, 몇일전 시세대비), threshold_pct(등락률");
+    lines.push("   임계값, %), amount(그 구간 매수 금액, 원)");
+    lines.push("");
+    lines.push("네 방식 모두 익절선(take_profit_pct)·손절선(stop_loss_pct) 후보도 매수평균가");
+    lines.push("대비 비율로 줄 수 있습니다(예: 0.1 = 10%). 비워 두면 그 조건 없이 계산합니다.");
+    lines.push("");
+    lines.push("답은 이 화면의 '찾아볼 매수 방식과 변수 후보' 칸에 그대로 옮겨 적을 수 있게,");
+    lines.push("후보값을 매수 방식별로 쉼표로 구분한 목록 형태로 알려주세요.");
+
+    return lines.join("\n");
+  }
+
+  optAiPromptBtn.addEventListener("click", function () {
+    optAiPromptText.value = buildAiPrompt();
+    optAiPromptBox.hidden = false;
+    setStatus(optAiPromptStatus, "", "");
+  });
+
+  optAiPromptCopyBtn.addEventListener("click", function () {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(optAiPromptText.value).then(
+        function () { setStatus(optAiPromptStatus, "ok", "복사했습니다."); },
+        function () { setStatus(optAiPromptStatus, "err", "복사에 실패했습니다. 아래 칸에서 직접 선택해서 복사하세요."); }
+      );
+      return;
+    }
+    optAiPromptText.select();
+    try {
+      document.execCommand("copy");
+      setStatus(optAiPromptStatus, "ok", "복사했습니다.");
+    } catch (e) {
+      setStatus(optAiPromptStatus, "err", "복사에 실패했습니다. 아래 칸에서 직접 선택해서 복사하세요.");
+    }
+  });
 })();
