@@ -50,7 +50,7 @@
       description: "정해진 금액을 일정 간격마다 산다.",
       params: [
         { name: "amount", label: "회당 매수 금액(원)", type: "int", suggested: 100000 },
-        { name: "interval_days", label: "매수 간격(거래일, 1이면 매일)", type: "int", suggested: 1 },
+        { name: "interval_days", label: "매수빈도(일수, 1이면 매일)", type: "int", suggested: 1 },
       ],
     },
     dca_ma: {
@@ -76,8 +76,8 @@
       label: "등락률 기준 비중 조절 매수",
       description: "최근 평균 주가 대비 등락률 구간마다 매수 금액을 다르게 정한다. 하락 구간뿐 아니라 상승 구간도 넣을 수 있다.",
       params: [
-        { name: "interval_days", label: "판단 간격(거래일, 1이면 매일)", type: "int", suggested: 1 },
-        { name: "lookback_days", label: "등락률 기준 기간(거래일, 1이면 전일 대비)", type: "int", suggested: 1 },
+        { name: "interval_days", label: "평가 빈도(거래일, 1이면 매일)", type: "int", suggested: 1 },
+        { name: "lookback_days", label: "평가 기준일(몇일전 시세대비, 1이면 전일 대비)", type: "int", suggested: 1 },
         {
           name: "tiers",
           label: "등락률 구간별 매수 금액(등락률%, 금액)",
@@ -101,8 +101,8 @@
   // 다를 수 있다는 지적을 받았다). 그래서 EXIT_PARAMS를 각 전략의 params
   // 끝에 붙인다.
   var EXIT_PARAMS = [
-    { name: "take_profit_pct", label: "목표 수익률 후보(익절, %, 쉼표로 구분) — 비워 두면 안 씀", type: "percent_optional" },
-    { name: "stop_loss_pct", label: "손실 한도 후보(손절, %, 쉼표로 구분) — 비워 두면 안 씀", type: "percent_optional" },
+    { name: "take_profit_pct", label: "익절선 후보(매수평균가 대비%, 쉼표로 구분) — 비워 두면 안 씀", type: "percent_optional" },
+    { name: "stop_loss_pct", label: "손절선 후보(매수평균가 대비%, 쉼표로 구분) — 비워 두면 안 씀", type: "percent_optional" },
   ];
   var STRATEGY_SEARCH_SCHEMAS = {
     lump_sum: { label: "일회 매수", params: [].concat(EXIT_PARAMS) },
@@ -110,7 +110,7 @@
       label: "적립식 매수",
       params: [
         { name: "amount", label: "회당 매수 금액 후보(원, 쉼표로 구분)", type: "int_list", suggested: "50000, 100000, 200000" },
-        { name: "interval_days", label: "매수 간격 후보(거래일, 쉼표로 구분)", type: "int_list", suggested: "1, 5, 10" },
+        { name: "interval_days", label: "매수빈도 후보(일수, 쉼표로 구분)", type: "int_list", suggested: "1, 5, 10" },
       ].concat(EXIT_PARAMS),
     },
     dca_ma: {
@@ -133,8 +133,8 @@
     drop_based: {
       label: "등락률 기준 비중 조절 매수(구간 하나로 단순화)",
       params: [
-        { name: "interval_days", label: "판단 간격 후보(거래일, 쉼표로 구분)", type: "int_list", suggested: "1, 5, 10" },
-        { name: "lookback_days", label: "등락률 기준 기간 후보(거래일, 쉼표로 구분)", type: "int_list", suggested: "1, 5, 10" },
+        { name: "interval_days", label: "평가 빈도 후보(거래일, 쉼표로 구분)", type: "int_list", suggested: "1, 5, 10" },
+        { name: "lookback_days", label: "평가 기준일 후보(몇일전 시세대비, 쉼표로 구분)", type: "int_list", suggested: "1, 5, 10" },
         { name: "threshold_pct", label: "등락률 임계값 후보(%, 쉼표로 구분)", type: "float_list", suggested: "-3, -5, -10" },
         { name: "amount", label: "그 구간 매수 금액 후보(원, 쉼표로 구분)", type: "int_list", suggested: "100000, 200000, 300000" },
       ].concat(EXIT_PARAMS),
@@ -334,6 +334,9 @@
         setStatus(pricesListStatus, "err", "목록을 불러오지 못했습니다: " + err.message);
       });
   });
+
+  // 새로고침을 안 눌러도 화면을 열면 바로 목록이 보이게 한다.
+  refreshPricesListBtn.click();
 
   function parsePriceRows(text) {
     var lines = text.split(/\r?\n/).filter(function (line) { return line.trim().length > 0; });
@@ -712,7 +715,7 @@
     el.appendChild(paramsHost);
 
     var tpLabel = document.createElement("label");
-    tpLabel.textContent = "목표 수익률(익절, %) — 비워 두면 안 씀";
+    tpLabel.textContent = "익절선(매수평균가 대비%) — 비워 두면 안 씀";
     var tpInput = document.createElement("input");
     tpInput.type = "number";
     tpInput.step = "0.1";
@@ -720,7 +723,7 @@
     el.appendChild(tpLabel);
 
     var slLabel = document.createElement("label");
-    slLabel.textContent = "손실 한도(손절, %) — 비워 두면 안 씀";
+    slLabel.textContent = "손절선(매수평균가 대비%) — 비워 두면 안 씀";
     var slInput = document.createElement("input");
     slInput.type = "number";
     slInput.step = "0.1";

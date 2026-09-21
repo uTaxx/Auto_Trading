@@ -223,7 +223,7 @@ STRATEGY_SCHEMAS: dict[str, dict[str, Any]] = {
         "description": "정해진 금액을 일정 간격마다 산다.",
         "params": [
             {"name": "amount", "label": "회당 매수 금액(원)", "type": "int", "suggested": 100000},
-            {"name": "interval_days", "label": "매수 간격(거래일, 1이면 매일)", "type": "int", "suggested": 1},
+            {"name": "interval_days", "label": "매수빈도(일수, 1이면 매일)", "type": "int", "suggested": 1},
         ],
     },
     "dca_ma": {
@@ -249,8 +249,8 @@ STRATEGY_SCHEMAS: dict[str, dict[str, Any]] = {
         "label": "등락률 기준 비중 조절 매수",
         "description": "최근 평균 주가 대비 등락률 구간마다 매수 금액을 다르게 정한다. 하락 구간뿐 아니라 상승 구간도 넣을 수 있다.",
         "params": [
-            {"name": "interval_days", "label": "판단 간격(거래일, 1이면 매일)", "type": "int", "suggested": 1},
-            {"name": "lookback_days", "label": "등락률 기준 기간(거래일, 1이면 전일 대비)", "type": "int", "suggested": 1},
+            {"name": "interval_days", "label": "평가 빈도(거래일, 1이면 매일)", "type": "int", "suggested": 1},
+            {"name": "lookback_days", "label": "평가 기준일(몇일전 시세대비, 1이면 전일 대비)", "type": "int", "suggested": 1},
             {
                 "name": "tiers",
                 "label": "등락률 구간별 매수 금액(등락률%, 금액. 예: -5, 120000 / +5, 80000)",

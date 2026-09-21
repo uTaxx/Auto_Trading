@@ -47,14 +47,14 @@ MAX_COMBINATIONS = 200
 _EXIT_PARAMS: list[dict[str, Any]] = [
     {
         "name": "take_profit_pct",
-        "label": "목표 수익률 후보(익절, 비율. 예: 0.1 = 10%. 비워 두면 안 씀)",
+        "label": "익절선 후보(매수평균가 대비 비율. 예: 0.1 = 10%. 비워 두면 안 씀)",
         "type": "float",
         "optional": True,
         "suggested": [],
     },
     {
         "name": "stop_loss_pct",
-        "label": "손실 한도 후보(손절, 비율. 비워 두면 안 씀)",
+        "label": "손절선 후보(매수평균가 대비 비율. 비워 두면 안 씀)",
         "type": "float",
         "optional": True,
         "suggested": [],
@@ -70,7 +70,7 @@ STRATEGY_SEARCH_SCHEMAS: dict[str, dict[str, Any]] = {
         "label": "적립식 매수",
         "params": [
             {"name": "amount", "label": "회당 매수 금액 후보(원)", "type": "int", "suggested": [50000, 100000, 200000]},
-            {"name": "interval_days", "label": "매수 간격 후보(거래일)", "type": "int", "suggested": [1, 5, 10]},
+            {"name": "interval_days", "label": "매수빈도 후보(일수)", "type": "int", "suggested": [1, 5, 10]},
             *_EXIT_PARAMS,
         ],
     },
@@ -87,8 +87,8 @@ STRATEGY_SEARCH_SCHEMAS: dict[str, dict[str, Any]] = {
     "drop_based": {
         "label": "등락률 기준 비중 조절 매수(구간 하나로 단순화)",
         "params": [
-            {"name": "interval_days", "label": "판단 간격 후보(거래일)", "type": "int", "suggested": [1, 5, 10]},
-            {"name": "lookback_days", "label": "등락률 기준 기간 후보(거래일)", "type": "int", "suggested": [1, 5, 10]},
+            {"name": "interval_days", "label": "평가 빈도 후보(거래일)", "type": "int", "suggested": [1, 5, 10]},
+            {"name": "lookback_days", "label": "평가 기준일 후보(몇일전 시세대비)", "type": "int", "suggested": [1, 5, 10]},
             {"name": "threshold_pct", "label": "등락률 임계값 후보(%)", "type": "float", "suggested": [-3, -5, -10]},
             {"name": "amount", "label": "그 구간 매수 금액 후보(원)", "type": "int", "suggested": [100000, 200000, 300000]},
             *_EXIT_PARAMS,
