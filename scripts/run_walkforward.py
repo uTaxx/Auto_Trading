@@ -32,10 +32,11 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
+from auto_trading.backtest import build_strategy, run_backtest
 from auto_trading.gdrive import _build_service, find_or_create_folder, upload_bytes, upload_text
 from auto_trading.optimize import build_strategy_configs, run_search
 from auto_trading.prices_io import filter_range, load_prices
-from auto_trading.walkforward import WalkForwardConfig, run_walk_forward
+from auto_trading.walkforward import WalkForwardConfig, build_summary_stats, run_walk_forward
 from auto_trading.xlsx_report import build_comparison_report
 
 RESULTS_FOLDER_ID = "1W9QQnstslExQCtBvphvoCJZ-b5y9nhvt"  # 02_백테스트결과
@@ -122,6 +123,24 @@ def main() -> None:
     baseline_rows = run_search(symbol, prices, args.capital, configs)
     print(f"\n(비교) 전체 기간 최적화 1위: {baseline_rows[0]['strategy_name']} ({baseline_rows[0]['수익률']:.2f}%)")
 
+    # 비교 그래프용: 전체 기간 최적화 1위의 일별 총자산도 남긴다.
+    # run_search는 요약 한 줄만 내고 일별 값은 버리므로, 같은 조건으로
+    # 한 번 더 돌린다(라벨이 조합마다 고유해서 결과 줄과 설정을 다시
+    # 짝지을 수 있다).
+    config_by_label = {c["label"]: c for c in configs}
+    best_config = config_by_label[baseline_rows[0]["strategy_name"]]
+    best_baseline_strategy = build_strategy(best_config, args.capital)
+    best_baseline_result = run_backtest(prices, capital=args.capital, strategy=best_baseline_strategy)
+    baseline_series = [
+        {"trade_date": str(row["trade_date"]), "total_value": round(row["total_value"])}
+        for _, row in best_baseline_result.iterrows()
+    ]
+
+    summary_stats = build_summary_stats(wf_result["폴드별_결과"])
+    if summary_stats["폴드수경고"]:
+        print(f"\n(안내) {summary_stats['폴드수경고']}")
+    print(f"(안내) 전략 변경 {summary_stats['전략변경횟수']}회, OOS 양수 폴드 {summary_stats['OOS_폴드수']['양수']}개, 음수 폴드 {summary_stats['OOS_폴드수']['음수']}개")
+
     if args.upload:
         now_kst = datetime.now(ZoneInfo("Asia/Seoul"))
         generated_at_text = now_kst.strftime("%Y-%m-%d %H:%M:%S")
@@ -156,6 +175,8 @@ def main() -> None:
             "전체_OOS_성과": wf_result["전체_OOS_성과"],
             "전체_OOS_시계열": wf_result["전체_OOS_시계열"],
             "비교_전체기간_최적화": baseline_rows,
+            "비교_전체기간_최적화_시계열": baseline_series,
+            "요약통계": summary_stats,
             "비교엑셀": {"file_id": comparison_file_id, "이름": comparison_xlsx_name},
         }
         filename = f"워크포워드_{now_kst.strftime('%Y%m%d_%H%M%S')}_{symbol}.json"

@@ -191,3 +191,121 @@ def run_walk_forward(
         "전체_OOS_성과": combined_metrics,
         "전체_OOS_시계열": combined_series,
     }
+
+
+# ── 결과 화면이 계산 없이 답할 수 있어야 하는 것들 ──────────
+# 위 run_walk_forward()는 폴드별 계산만 한다. 아래 함수들은 그 결과를
+# 사람이 눈으로 판단하기 쉽게 요약만 할 뿐 새로 백테스트를 돌리지
+# 않는다. "좋다/나쁘다"를 판정하지 않고, 세는 것과 견주는 것만 한다
+# (2026-09-22에 추가).
+
+
+def _configs_equal(a: dict, b: dict) -> bool:
+    """전략 파라미터가 실제로 같은지 비교한다. 설명 문자열이 아니라
+    전략키와 설정값 자체로 비교해야, 서식만 다른 두 문자열을 다른
+    조건으로 잘못 세지 않는다."""
+    return a.get("전략키") == b.get("전략키") and a.get("설정") == b.get("설정")
+
+
+def count_strategy_changes(folds: list[dict]) -> int:
+    """이전 폴드와 선정 조건(전략키+파라미터)이 달라진 횟수. 폴드가
+    하나뿐이거나 없으면 0이다."""
+    changes = 0
+    for i in range(1, len(folds)):
+        if not _configs_equal(folds[i]["선정조건"], folds[i - 1]["선정조건"]):
+            changes += 1
+    return changes
+
+
+def count_oos_sign(folds: list[dict]) -> dict:
+    """검증기간 누적수익률이 양수·음수였던 폴드 수. 0%인 폴드는 둘 다
+    아니다(있는 그대로 뺀다)."""
+    positive = sum(
+        1 for f in folds if (r := f["검증기간_성과"]["누적수익률"]) is not None and r > 0
+    )
+    negative = sum(
+        1 for f in folds if (r := f["검증기간_성과"]["누적수익률"]) is not None and r < 0
+    )
+    return {"양수": positive, "음수": negative, "전체": len(folds)}
+
+
+def summarize_strategy_selections(folds: list[dict]) -> list[dict]:
+    """같은 조건(전략키+파라미터)이 여러 폴드에서 뽑혔으면 하나로 묶어서
+    선정 횟수·비율·평균 성과를 낸다. 선정 횟수가 많은 순으로 정렬한다.
+    "Walk-forward를 돌렸을 때 어떤 전략이 반복해서 선택됐는가"를 한눈에
+    보기 위한 표다."""
+    groups: list[dict] = []
+    for fold in folds:
+        sel = fold["선정조건"]
+        match = next((g for g in groups if _configs_equal(g["선정조건"], sel)), None)
+        if match is None:
+            match = {"선정조건": sel, "폴드들": []}
+            groups.append(match)
+        match["폴드들"].append(fold)
+
+    total = len(folds)
+    rows = []
+    for g in groups:
+        folds_here = g["폴드들"]
+        oos_returns = [f["검증기간_성과"]["누적수익률"] for f in folds_here if f["검증기간_성과"]["누적수익률"] is not None]
+        train_returns = [f["학습기간_성과"]["누적수익률"] for f in folds_here if f["학습기간_성과"]["누적수익률"] is not None]
+        rows.append(
+            {
+                "전략": g["선정조건"]["설명"],
+                "선정횟수": len(folds_here),
+                "선정비율": round(len(folds_here) / total * 100, 1) if total else None,
+                "평균_검증_수익률": round(sum(oos_returns) / len(oos_returns), 2) if oos_returns else None,
+                "OOS_양수_횟수": sum(1 for r in oos_returns if r > 0),
+                "OOS_음수_횟수": sum(1 for r in oos_returns if r < 0),
+                "평균_학습_수익률": round(sum(train_returns) / len(train_returns), 2) if train_returns else None,
+            }
+        )
+    rows.sort(key=lambda r: r["선정횟수"], reverse=True)
+    return rows
+
+
+def build_strategy_change_history(folds: list[dict]) -> list[dict]:
+    """시간 순서대로 각 폴드의 검증기간·선정 조건과, 바로 앞 폴드 대비
+    상태('최초'/'동일'/'변경')를 낸다."""
+    history = []
+    prev = None
+    for fold in folds:
+        sel = fold["선정조건"]
+        if prev is None:
+            status = "최초"
+        elif _configs_equal(sel, prev):
+            status = "동일"
+        else:
+            status = "변경"
+        history.append({"검증기간": fold["검증기간"], "선정조건": sel["설명"], "상태": status})
+        prev = sel
+    return history
+
+
+#: 폴드가 이보다 적으면 화면에 표본이 적다는 안내를 띄운다. "이 숫자면
+#: 통계적으로 충분하다"는 주장이 아니라, 그 아래에서는 안내가 필요하다고
+#: 정한 값일 뿐이다.
+MIN_RECOMMENDED_FOLDS = 3
+
+
+def fold_count_warning(fold_count: int) -> str | None:
+    """폴드 수가 적으면 안내 문구를, 충분하면 None을 돌려준다. "통계적으로
+    충분하다"처럼 단정하는 말은 쓰지 않는다."""
+    if fold_count >= MIN_RECOMMENDED_FOLDS:
+        return None
+    return (
+        f"검증 폴드가 {fold_count}개입니다. 현재 기간에서는 Walk-forward 검증 표본이 적어 "
+        "전략의 안정성을 판단하기에 제한적일 수 있습니다."
+    )
+
+
+def build_summary_stats(folds: list[dict]) -> dict:
+    """위 함수들을 한 번에 묶어서 결과 JSON에 그대로 실을 수 있는
+    모양으로 낸다."""
+    return {
+        "전략변경횟수": count_strategy_changes(folds),
+        "OOS_폴드수": count_oos_sign(folds),
+        "전략반복선정": summarize_strategy_selections(folds),
+        "전략변경이력": build_strategy_change_history(folds),
+        "폴드수경고": fold_count_warning(len(folds)),
+    }

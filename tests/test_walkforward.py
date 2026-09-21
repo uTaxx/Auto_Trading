@@ -5,9 +5,16 @@ import pytest
 
 from auto_trading.optimize import build_strategy_configs, run_search
 from auto_trading.walkforward import (
+    MIN_RECOMMENDED_FOLDS,
     WalkForwardConfig,
+    build_strategy_change_history,
+    build_summary_stats,
+    count_oos_sign,
+    count_strategy_changes,
+    fold_count_warning,
     generate_folds,
     run_walk_forward,
+    summarize_strategy_selections,
 )
 
 
@@ -116,3 +123,102 @@ def test_시세가_모자라면_이유를_설명하는_오류():
     config = WalkForwardConfig()  # 3/1/1인데 시세가 2년뿐
     with pytest.raises(ValueError, match="시세 기간이 부족"):
         run_walk_forward("TEST", prices, capital=1_000_000, search=search, config=config)
+
+
+# ── 결과 화면용 요약 함수들 ──────────────────────────────
+def _fold(idx, 전략키, 설정, 검증_수익률, 학습_수익률=10.0, 검증_시작="2020-01-01", 검증_종료="2021-01-01"):
+    """테스트용 폴드 하나. run_walk_forward가 실제로 내는 모양만 흉내 낸다."""
+    설명 = f"{전략키}({설정})"
+    return {
+        "폴드": idx,
+        "학습기간": {"시작": "2017-01-01", "종료": 검증_시작},
+        "검증기간": {"시작": 검증_시작, "종료": 검증_종료},
+        "선정조건": {"전략키": 전략키, "설명": 설명, "설정": 설정},
+        "학습기간_성과": {"누적수익률": 학습_수익률, "CAGR": None, "최대낙폭": -5.0, "최대낙폭회복일수": 0, "Calmar": None, "거래횟수": 3},
+        "검증기간_성과": {"누적수익률": 검증_수익률, "CAGR": None, "최대낙폭": -5.0, "최대낙폭회복일수": 0, "Calmar": None, "거래횟수": 3},
+    }
+
+
+def test_전략_변경_횟수는_이전_폴드와_설정이_다를_때만_센다():
+    folds = [
+        _fold(1, "dca", {"amount": 100000, "interval_days": 5}, 1.0),
+        _fold(2, "dca", {"amount": 100000, "interval_days": 5}, 2.0),  # 동일
+        _fold(3, "dca", {"amount": 200000, "interval_days": 5}, 3.0),  # 변경(금액)
+        _fold(4, "lump_sum", {"take_profit_pct": 0.2}, 4.0),  # 변경(전략키)
+    ]
+    assert count_strategy_changes(folds) == 2
+
+
+def test_전략_변경_횟수는_폴드가_하나면_0():
+    assert count_strategy_changes([_fold(1, "dca", {"amount": 1}, 1.0)]) == 0
+    assert count_strategy_changes([]) == 0
+
+
+def test_양수_음수_OOS_폴드를_센다():
+    folds = [
+        _fold(1, "dca", {"amount": 1}, 5.0),
+        _fold(2, "dca", {"amount": 1}, -3.0),
+        _fold(3, "dca", {"amount": 1}, 0.0),  # 0은 양수도 음수도 아니다
+        _fold(4, "dca", {"amount": 1}, 1.5),
+    ]
+    result = count_oos_sign(folds)
+    assert result == {"양수": 2, "음수": 1, "전체": 4}
+
+
+def test_전략_반복_선정_현황은_같은_조건을_하나로_묶는다():
+    folds = [
+        _fold(1, "dca", {"amount": 100000, "interval_days": 5}, 10.0, 학습_수익률=30.0),
+        _fold(2, "dca", {"amount": 100000, "interval_days": 5}, -4.0, 학습_수익률=40.0),
+        _fold(3, "lump_sum", {"take_profit_pct": 0.2}, 8.0, 학습_수익률=15.0),
+    ]
+    rows = summarize_strategy_selections(folds)
+
+    assert len(rows) == 2
+    top = rows[0]  # 선정횟수가 많은 순
+    assert top["선정횟수"] == 2
+    assert top["선정비율"] == pytest.approx(66.7, abs=0.1)
+    assert top["평균_검증_수익률"] == pytest.approx((10.0 + -4.0) / 2)
+    assert top["OOS_양수_횟수"] == 1
+    assert top["OOS_음수_횟수"] == 1
+    assert top["평균_학습_수익률"] == pytest.approx((30.0 + 40.0) / 2)
+
+    second = rows[1]
+    assert second["선정횟수"] == 1
+
+
+def test_전략_변경_이력은_최초_동일_변경으로_나눈다():
+    folds = [
+        _fold(1, "dca", {"amount": 1}, 1.0, 검증_시작="2018-01-01", 검증_종료="2019-01-01"),
+        _fold(2, "dca", {"amount": 1}, 2.0, 검증_시작="2019-01-01", 검증_종료="2020-01-01"),
+        _fold(3, "lump_sum", {"take_profit_pct": 0.2}, 3.0, 검증_시작="2020-01-01", 검증_종료="2021-01-01"),
+    ]
+    history = build_strategy_change_history(folds)
+
+    assert [h["상태"] for h in history] == ["최초", "동일", "변경"]
+    assert history[0]["검증기간"] == folds[0]["검증기간"]
+
+
+def test_폴드_수_부족_경고():
+    assert fold_count_warning(MIN_RECOMMENDED_FOLDS - 1) is not None
+    assert "검증 폴드가" in fold_count_warning(1)
+    assert fold_count_warning(MIN_RECOMMENDED_FOLDS) is None
+    assert fold_count_warning(MIN_RECOMMENDED_FOLDS + 5) is None
+
+
+def test_폴드_수_부족_경고는_통계적으로_충분하다고_단정하지_않는다():
+    for n in range(MIN_RECOMMENDED_FOLDS):
+        message = fold_count_warning(n)
+        assert "통계적으로 충분" not in message
+
+
+def test_build_summary_stats는_전부_한번에_묶는다():
+    folds = [
+        _fold(1, "dca", {"amount": 1}, 1.0),
+        _fold(2, "dca", {"amount": 1}, -1.0),
+    ]
+    stats = build_summary_stats(folds)
+    assert stats["전략변경횟수"] == 0
+    assert stats["OOS_폴드수"] == {"양수": 1, "음수": 1, "전체": 2}
+    assert len(stats["전략반복선정"]) == 1
+    assert len(stats["전략변경이력"]) == 2
+    assert stats["폴드수경고"] is not None  # 폴드 2개는 기본 문턱(3) 미만
