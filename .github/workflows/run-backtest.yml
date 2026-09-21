@@ -1,0 +1,62 @@
+name: 백테스트 비교
+
+# 구글 드라이브에 쌓인 시세로 여러 매수 방식을 비교한다. 최대 5개
+# 전략까지 한 번에 견줄 수 있다. 결과 표는 실행 로그에 찍히고,
+# upload를 켜면 02_백테스트결과에 JSON으로도 남는다.
+
+on:
+  workflow_dispatch:
+    inputs:
+      symbols:
+        description: "쉼표로 구분한 티커 (예: SPY,QQQ)"
+        required: true
+      strategies:
+        description: "쉼표로 구분한 전략 키 (비우면 등록된 5개 전부): lump_sum,dca,dca_ma_below,dca_ma_above,drop_based"
+        default: ""
+      capital:
+        description: "종목·전략마다 쓰는 총자본(원)"
+        default: "10000000"
+      start:
+        description: "시작일 YYYY-MM-DD (비우면 받아 둔 시세 전체)"
+        default: ""
+      end:
+        description: "종료일 YYYY-MM-DD (비우면 받아 둔 시세 전체)"
+        default: ""
+      upload:
+        description: "결과를 02_백테스트결과에 올린다"
+        type: boolean
+        default: true
+
+concurrency:
+  group: run-backtest
+  cancel-in-progress: false
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt
+
+      - name: 전략 비교 계산
+        env:
+          SYMBOLS: ${{ github.event.inputs.symbols }}
+          STRATEGIES: ${{ github.event.inputs.strategies }}
+          CAPITAL: ${{ github.event.inputs.capital }}
+          START: ${{ github.event.inputs.start }}
+          END: ${{ github.event.inputs.end }}
+          UPLOAD: ${{ github.event.inputs.upload }}
+          GDRIVE_SA_KEY_JSON: ${{ secrets.GDRIVE_SA_KEY_JSON }}
+          GDRIVE_IMPERSONATE_EMAIL: master@sondullab.com
+        run: |
+          ARGS=(--symbols "$SYMBOLS" --capital "$CAPITAL")
+          if [ -n "$STRATEGIES" ]; then ARGS+=(--strategies "$STRATEGIES"); fi
+          if [ -n "$START" ]; then ARGS+=(--start "$START"); fi
+          if [ -n "$END" ]; then ARGS+=(--end "$END"); fi
+          if [ "$UPLOAD" = "true" ]; then ARGS+=(--upload); fi
+          python scripts/run_backtest.py "${ARGS[@]}"
