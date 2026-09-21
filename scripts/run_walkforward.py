@@ -34,6 +34,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from auto_trading.backtest import build_strategy, run_backtest
 from auto_trading.gdrive import _build_service, find_or_create_folder, upload_bytes, upload_text
+from auto_trading.metrics import extended_metrics
 from auto_trading.optimize import build_strategy_configs, run_search
 from auto_trading.prices_io import filter_range, load_prices
 from auto_trading.walkforward import WalkForwardConfig, build_summary_stats, run_walk_forward
@@ -135,6 +136,10 @@ def main() -> None:
         {"trade_date": str(row["trade_date"]), "total_value": round(row["total_value"])}
         for _, row in best_baseline_result.iterrows()
     ]
+    # 비교표에 CAGR·Calmar·거래횟수까지 나란히 보여주려면 baseline_rows
+    # (summarize_result 결과, 수익률·최대낙폭만 있다)만으로는 모자라서
+    # 위에서 만든 일별 결과로 한 번 더 계산한다.
+    baseline_metrics = extended_metrics(best_baseline_result, args.capital)
 
     summary_stats = build_summary_stats(wf_result["폴드별_결과"])
     if summary_stats["폴드수경고"]:
@@ -176,6 +181,7 @@ def main() -> None:
             "전체_OOS_시계열": wf_result["전체_OOS_시계열"],
             "비교_전체기간_최적화": baseline_rows,
             "비교_전체기간_최적화_시계열": baseline_series,
+            "비교_전체기간_최적화_지표": baseline_metrics,
             "요약통계": summary_stats,
             "비교엑셀": {"file_id": comparison_file_id, "이름": comparison_xlsx_name},
         }

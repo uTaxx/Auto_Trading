@@ -1484,98 +1484,433 @@
     if (similarSelection) resultView.appendChild(buildSimilarFollowupNote(similarSelection));
   }
 
-  // Walk-forward 결과 전용 화면. 폴드마다 학습기간에서 고른 조건과 그
-  // 조건을 검증기간에 그대로 적용한 성과를 나란히 보여주고, 검증기간들을
-  // 이어 붙인 전체 OOS 성과, 그리고 기존 방식(전체 기간 최적화)과의
-  // 비교를 같이 보여준다(2026-09-22).
+  // ── Walk-forward 결과 전용 화면 도우미 ──────────────────
+  function resultLabel(v) {
+    if (v === null || v === undefined) return "-";
+    if (v > 0) return "수익";
+    if (v < 0) return "손실";
+    return "보합";
+  }
+  function resultLabelClass(v) {
+    if (v === null || v === undefined) return "";
+    return v > 0 ? "positive" : v < 0 ? "negative" : "";
+  }
+  function statTile(label, value, cls) {
+    var tile = document.createElement("div");
+    tile.className = "stat-tile";
+    var l = document.createElement("div");
+    l.className = "label";
+    l.textContent = label;
+    var v = document.createElement("div");
+    v.className = "value" + (cls ? " " + cls : "");
+    v.textContent = value;
+    tile.appendChild(l);
+    tile.appendChild(v);
+    return tile;
+  }
+
+  // Buy & Hold는 화면이 대신 계산하는 것이 아니라 실제 시세로 직접
+  // 계산한다("임의의 숫자로 그래프를 만들지 마세요"라는 요청을 따른
+  // 것이다). 시세를 못 받으면 null을 돌려주고, 그 경우 그래프에서
+  // 이 선만 뺀다.
+  function computeBuyHoldSeries(symbol, startDate, endDate, capital) {
+    return fetchPriceFileId(symbol)
+      .then(function (fileId) {
+        if (!fileId) throw new Error("시세 없음");
+        return fetch(URLS.getPrice + "?id=" + encodeURIComponent(fileId)).then(function (res) {
+          if (!res.ok) throw new Error("응답 코드 " + res.status);
+          return res.text();
+        });
+      })
+      .then(function (text) {
+        var rows = parsePriceRows(text);
+        var inRange = rows.filter(function (r) { return r.date >= startDate && r.date <= endDate; });
+        if (inRange.length === 0) return null;
+        var shares = capital / inRange[0].close;
+        return inRange.map(function (r) { return { date: r.date, value: shares * r.close }; });
+      })
+      .catch(function () { return null; });
+  }
+
+  // buildChart(위)는 여러 시리즈가 같은 길이라고 보고 인덱스로 x축을
+  // 맞춘다. Walk-forward 비교 그래프는 세 선의 실제 날짜 범위가 서로
+  // 다르므로(OOS는 검증기간만, 나머지 둘은 전체 기간), 실제 달력
+  // 날짜로 x축을 맞추는 별도 함수가 필요하다.
+  function buildEquityCurveChart(seriesList) {
+    var nonEmpty = seriesList.filter(function (s) { return s.points && s.points.length > 0; });
+    if (nonEmpty.length === 0) return null;
+
+    var width = 640, height = 280, padding = { top: 10, right: 10, bottom: 24, left: 70 };
+    var plotW = width - padding.left - padding.right;
+    var plotH = height - padding.top - padding.bottom;
+
+    var allValues = [];
+    var minTime = Infinity, maxTime = -Infinity;
+    nonEmpty.forEach(function (s) {
+      s.points.forEach(function (p) {
+        allValues.push(p.value);
+        var t = new Date(p.date).getTime();
+        if (t < minTime) minTime = t;
+        if (t > maxTime) maxTime = t;
+      });
+    });
+    var minV = Math.min.apply(null, allValues);
+    var maxV = Math.max.apply(null, allValues);
+    if (minV === maxV) { minV -= 1; maxV += 1; }
+    var timeSpan = Math.max(1, maxTime - minTime);
+
+    function xAt(dateStr) { return padding.left + ((new Date(dateStr).getTime() - minTime) / timeSpan) * plotW; }
+    function yAt(v) { return padding.top + plotH - ((v - minV) / (maxV - minV)) * plotH; }
+
+    var svgNS = "http://www.w3.org/2000/svg";
+    var svg = document.createElementNS(svgNS, "svg");
+    svg.setAttribute("viewBox", "0 0 " + width + " " + height);
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", "누적자산 비교 그래프");
+
+    [0, 0.5, 1].forEach(function (t) {
+      var v = minV + (maxV - minV) * t;
+      var y = yAt(v);
+      var line = document.createElementNS(svgNS, "line");
+      line.setAttribute("x1", padding.left);
+      line.setAttribute("x2", width - padding.right);
+      line.setAttribute("y1", y);
+      line.setAttribute("y2", y);
+      line.setAttribute("stroke", "currentColor");
+      line.setAttribute("stroke-opacity", "0.15");
+      svg.appendChild(line);
+
+      var label = document.createElementNS(svgNS, "text");
+      label.setAttribute("x", padding.left - 6);
+      label.setAttribute("y", y + 4);
+      label.setAttribute("text-anchor", "end");
+      label.setAttribute("font-size", "10");
+      label.setAttribute("fill", "currentColor");
+      label.setAttribute("opacity", "0.6");
+      label.textContent = fmtNumber(v);
+      svg.appendChild(label);
+    });
+
+    var longest = nonEmpty.reduce(function (a, b) { return a.points.length >= b.points.length ? a : b; });
+    var xTickCount = Math.min(5, longest.points.length);
+    for (var ti = 0; ti < xTickCount; ti++) {
+      var idx = xTickCount <= 1 ? 0 : Math.round((ti / (xTickCount - 1)) * (longest.points.length - 1));
+      var xText = document.createElementNS(svgNS, "text");
+      xText.setAttribute("x", xAt(longest.points[idx].date));
+      xText.setAttribute("y", height - 6);
+      xText.setAttribute("text-anchor", ti === 0 ? "start" : ti === xTickCount - 1 ? "end" : "middle");
+      xText.setAttribute("font-size", "10");
+      xText.setAttribute("fill", "currentColor");
+      xText.setAttribute("opacity", "0.6");
+      xText.textContent = longest.points[idx].date;
+      svg.appendChild(xText);
+    }
+
+    nonEmpty.forEach(function (s) {
+      var d = s.points
+        .map(function (p, i) { return (i === 0 ? "M" : "L") + xAt(p.date).toFixed(1) + "," + yAt(p.value).toFixed(1); })
+        .join(" ");
+      var path = document.createElementNS(svgNS, "path");
+      path.setAttribute("d", d);
+      path.setAttribute("fill", "none");
+      path.setAttribute("stroke", s.color);
+      path.setAttribute("stroke-width", "2");
+      if (s.dashed) path.setAttribute("stroke-dasharray", "4,3");
+      svg.appendChild(path);
+    });
+
+    var wrap = document.createElement("div");
+    wrap.appendChild(svg);
+
+    var legend = document.createElement("div");
+    legend.className = "chart-legend";
+    nonEmpty.forEach(function (s) {
+      var span = document.createElement("span");
+      var i = document.createElement("i");
+      i.style.background = s.color;
+      span.appendChild(i);
+      span.appendChild(document.createTextNode(s.label));
+      legend.appendChild(span);
+    });
+    wrap.appendChild(legend);
+
+    return wrap;
+  }
+
+  // Walk-forward 결과 전용 화면(2026-09-22에 크게 넓혔다). "좋다/나쁘다"를
+  // 판정하거나 점수를 매기지 않고, 판단에 필요한 값을 빠짐없이 보여주는
+  // 것이 목표다. 순서는 설정 → 핵심 성과 카드 → 누적자산 그래프 →
+  // 폴드별 상세 → 전략 반복 선정 현황 → 전략 변경 이력 → 학습 vs 검증
+  // 비교 → 전체기간 최적화와의 비교다.
   function renderWalkforwardResult(data) {
     var config = data["워크포워드_설정"] || {};
     var folds = data["폴드별_결과"] || [];
     var combined = data["전체_OOS_성과"] || {};
     var baseline = data["비교_전체기간_최적화"] || [];
+    var baselineMetrics = data["비교_전체기간_최적화_지표"] || {};
+    var baselineSeries = data["비교_전체기간_최적화_시계열"] || [];
+    var oosSeries = data["전체_OOS_시계열"] || [];
+    var stats = data["요약통계"] || {};
+    var symbol = (data["종목"] || [])[0];
+    var capital = data["자본금"];
+
+    // ① 설정
+    var settingsLine = document.createElement("p");
+    settingsLine.className = "desc";
+    var settingsStrong = document.createElement("strong");
+    settingsStrong.textContent =
+      "Walk-forward: 학습 " + fmtCell(config["학습기간_년"]) + "년 / 검증 " + fmtCell(config["검증기간_년"]) +
+      "년 / 이동 " + fmtCell(config["이동간격_년"]) + "년 / 총 " + folds.length + "개 폴드";
+    settingsLine.appendChild(settingsStrong);
+    resultView.appendChild(settingsLine);
 
     var intro = document.createElement("p");
     intro.className = "desc";
     intro.textContent =
-      "학습 " + fmtCell(config["학습기간_년"]) + "년 · 검증 " + fmtCell(config["검증기간_년"]) +
-      "년 · 이동 " + fmtCell(config["이동간격_년"]) + "년으로 폴드 " + folds.length + "개를 검증했습니다. " +
       "'검증' 칸은 그 폴드의 학습기간에서 고른 조건을 검증기간에 손대지 않고 그대로 적용한 결과입니다. " +
       "검증기간의 데이터는 조건을 고르는 데 전혀 쓰지 않았습니다.";
     resultView.appendChild(intro);
 
+    if (stats["폴드수경고"]) {
+      var warnBox = document.createElement("div");
+      warnBox.className = "warn-box";
+      warnBox.textContent = stats["폴드수경고"];
+      resultView.appendChild(warnBox);
+    }
+
+    // ② 핵심 성과 카드
+    var oosSign = stats["OOS_폴드수"] || {};
+    var statGrid = document.createElement("div");
+    statGrid.className = "stat-grid";
+    statGrid.appendChild(statTile("OOS 누적수익률", fmtCell(combined["누적수익률"], "%"), resultLabelClass(combined["누적수익률"])));
+    statGrid.appendChild(statTile("OOS CAGR", fmtCell(combined["CAGR"], "%"), resultLabelClass(combined["CAGR"])));
+    statGrid.appendChild(statTile("OOS 최대낙폭", fmtCell(combined["최대낙폭"], "%")));
+    statGrid.appendChild(statTile("Calmar", fmtCell(combined["Calmar"])));
+    statGrid.appendChild(statTile("양수 폴드", fmtCell(oosSign["양수"]) + " / " + fmtCell(oosSign["전체"])));
+    statGrid.appendChild(statTile("음수 폴드", fmtCell(oosSign["음수"]) + " / " + fmtCell(oosSign["전체"])));
+    statGrid.appendChild(statTile("총 거래횟수", fmtCell(combined["거래횟수"])));
+    statGrid.appendChild(statTile("전략 변경 횟수", fmtCell(stats["전략변경횟수"]) + "회 / " + Math.max(folds.length - 1, 0) + "회 전환"));
+    resultView.appendChild(statGrid);
+
+    // ③ 누적자산 그래프. Buy & Hold는 실제 시세를 받아 온 뒤에 덧그린다
+    // (기다리지 않고 나머지 화면부터 먼저 보여준다).
+    var chartTitle = document.createElement("h3");
+    chartTitle.textContent = "누적자산 비교";
+    resultView.appendChild(chartTitle);
+    var chartHost = document.createElement("div");
+    resultView.appendChild(chartHost);
+    var chartNote = document.createElement("p");
+    chartNote.className = "hint";
+    chartNote.textContent = "실제 백테스트로 계산된 값만 그립니다.";
+    resultView.appendChild(chartNote);
+
+    var chartSeries = [
+      {
+        label: "Walk-forward OOS(검증기간 연결)",
+        color: "#2f6f65",
+        points: oosSeries.map(function (p) { return { date: p.trade_date, value: p.total_value }; }),
+      },
+      {
+        label: "전체기간 최적화",
+        color: "#4a6fa5",
+        dashed: true,
+        points: baselineSeries.map(function (p) { return { date: p.trade_date, value: p.total_value }; }),
+      },
+    ];
+    function rerenderEquityChart() {
+      chartHost.innerHTML = "";
+      var chart = buildEquityCurveChart(chartSeries);
+      if (chart) chartHost.appendChild(chart);
+    }
+    rerenderEquityChart();
+
+    if (symbol && capital && data["조회기간"]) {
+      chartNote.textContent = "Buy & Hold 비교를 위해 시세를 불러오는 중입니다...";
+      computeBuyHoldSeries(symbol, data["조회기간"]["시작"], data["조회기간"]["종료"], capital).then(function (points) {
+        if (points) {
+          chartSeries.push({ label: "Buy & Hold(" + symbol + ")", color: "#c98f1c", dashed: true, points: points });
+          chartNote.textContent = "실제 백테스트·시세로 계산된 값만 그립니다.";
+        } else {
+          chartNote.textContent = "Buy & Hold 비교: 시세를 불러오지 못해 표시하지 않습니다.";
+        }
+        rerenderEquityChart();
+      });
+    }
+
+    // ④ 폴드별 상세 결과
+    var foldTitle = document.createElement("h3");
+    foldTitle.textContent = "폴드별 상세 결과";
+    resultView.appendChild(foldTitle);
     var wrap = document.createElement("div");
     wrap.className = "table-scroll";
     var table = document.createElement("table");
     var thead = document.createElement("thead");
     thead.innerHTML =
-      "<tr><th>폴드</th><th>검증기간</th><th>선정조건</th>" +
-      "<th>학습 수익률</th><th>검증 수익률</th><th>검증 CAGR</th><th>검증 최대낙폭</th>" +
-      "<th>검증 회복일수</th><th>검증 Calmar</th><th>검증 거래횟수</th></tr>";
+      "<tr><th>폴드</th><th>학습기간</th><th>검증기간</th><th>선정 전략</th>" +
+      "<th>학습 수익률</th><th>OOS 수익률</th><th>OOS CAGR</th><th>OOS 최대낙폭</th>" +
+      "<th>거래횟수</th><th>결과</th></tr>";
     table.appendChild(thead);
     var tbody = document.createElement("tbody");
     folds.forEach(function (fold) {
       var train = fold["학습기간_성과"] || {};
       var test = fold["검증기간_성과"] || {};
-      var recoveryText = test["최대낙폭회복일수"] === null || test["최대낙폭회복일수"] === undefined
-        ? "회복 못 함"
-        : test["최대낙폭회복일수"] + "일";
       var tr = document.createElement("tr");
       tr.innerHTML =
         "<td>" + fold["폴드"] + "</td>" +
+        "<td>" + fold["학습기간"]["시작"] + " ~ " + fold["학습기간"]["종료"] + "</td>" +
         "<td>" + fold["검증기간"]["시작"] + " ~ " + fold["검증기간"]["종료"] + "</td>" +
         "<td>" + fold["선정조건"]["설명"] + "</td>" +
         "<td>" + fmtCell(train["누적수익률"], "%") + "</td>" +
         "<td>" + fmtCell(test["누적수익률"], "%") + "</td>" +
         "<td>" + fmtCell(test["CAGR"], "%") + "</td>" +
         "<td>" + fmtCell(test["최대낙폭"], "%") + "</td>" +
-        "<td>" + recoveryText + "</td>" +
-        "<td>" + fmtCell(test["Calmar"]) + "</td>" +
-        "<td>" + fmtCell(test["거래횟수"]) + "</td>";
+        "<td>" + fmtCell(test["거래횟수"]) + "</td>" +
+        "<td class=\"result-tag " + resultLabelClass(test["누적수익률"]) + "\">" + resultLabel(test["누적수익률"]) + "</td>";
       tbody.appendChild(tr);
     });
     table.appendChild(tbody);
     wrap.appendChild(table);
     resultView.appendChild(wrap);
 
-    var combinedBox = document.createElement("div");
-    combinedBox.className = "similar-box";
-    var combinedTitle = document.createElement("p");
-    combinedTitle.className = "desc";
-    var combinedStrong = document.createElement("strong");
-    combinedStrong.textContent = "전체 OOS 성과(검증기간을 자본으로 이어 붙인 것)";
-    combinedTitle.appendChild(combinedStrong);
-    combinedBox.appendChild(combinedTitle);
-    var combinedRecovery = combined["최대낙폭회복일수"] === null || combined["최대낙폭회복일수"] === undefined
-      ? "회복 못 함"
-      : combined["최대낙폭회복일수"] + "일";
-    var combinedLine = document.createElement("p");
-    combinedLine.className = "desc";
-    combinedLine.textContent =
-      "누적수익률 " + fmtCell(combined["누적수익률"], "%") + ", CAGR " + fmtCell(combined["CAGR"], "%") +
-      ", 최대낙폭 " + fmtCell(combined["최대낙폭"], "%") + ", 회복일수 " + combinedRecovery +
-      ", Calmar " + fmtCell(combined["Calmar"]) + ", 거래횟수 " + fmtCell(combined["거래횟수"]);
-    combinedBox.appendChild(combinedLine);
-    resultView.appendChild(combinedBox);
+    // ⑤ 전략 반복 선정 현황
+    var repeatRows = stats["전략반복선정"] || [];
+    if (repeatRows.length > 0) {
+      var repeatTitle = document.createElement("h3");
+      repeatTitle.textContent = "전략 반복 선정 현황";
+      resultView.appendChild(repeatTitle);
+      var repeatDesc = document.createElement("p");
+      repeatDesc.className = "desc";
+      repeatDesc.textContent = "같은 조건(전략키+파라미터)이 여러 폴드에서 뽑혔으면 하나로 묶었습니다.";
+      resultView.appendChild(repeatDesc);
+      var repeatWrap = document.createElement("div");
+      repeatWrap.className = "table-scroll";
+      var repeatTable = document.createElement("table");
+      var repeatThead = document.createElement("thead");
+      repeatThead.innerHTML =
+        "<tr><th>전략</th><th>선정 횟수</th><th>선정 비율</th><th>평균 OOS 수익률</th>" +
+        "<th>OOS 양수</th><th>OOS 음수</th><th>평균 학습 수익률</th></tr>";
+      repeatTable.appendChild(repeatThead);
+      var repeatBody = document.createElement("tbody");
+      repeatRows.forEach(function (row) {
+        var tr = document.createElement("tr");
+        tr.innerHTML =
+          "<td>" + row["전략"] + "</td>" +
+          "<td>" + row["선정횟수"] + "</td>" +
+          "<td>" + fmtCell(row["선정비율"], "%") + "</td>" +
+          "<td>" + fmtCell(row["평균_검증_수익률"], "%") + "</td>" +
+          "<td>" + row["OOS_양수_횟수"] + "</td>" +
+          "<td>" + row["OOS_음수_횟수"] + "</td>" +
+          "<td>" + fmtCell(row["평균_학습_수익률"], "%") + "</td>";
+        repeatBody.appendChild(tr);
+      });
+      repeatTable.appendChild(repeatBody);
+      repeatWrap.appendChild(repeatTable);
+      resultView.appendChild(repeatWrap);
+    }
 
+    // ⑥ 전략 변경 이력
+    var history = stats["전략변경이력"] || [];
+    if (history.length > 0) {
+      var historyTitle = document.createElement("h3");
+      historyTitle.textContent = "전략 변경 이력";
+      resultView.appendChild(historyTitle);
+      var historyWrap = document.createElement("div");
+      historyWrap.className = "table-scroll";
+      var historyTable = document.createElement("table");
+      var historyThead = document.createElement("thead");
+      historyThead.innerHTML = "<tr><th>검증기간</th><th>선정 전략</th><th>이전 폴드 대비</th></tr>";
+      historyTable.appendChild(historyThead);
+      var historyBody = document.createElement("tbody");
+      history.forEach(function (h) {
+        var tr = document.createElement("tr");
+        tr.innerHTML =
+          "<td>" + h["검증기간"]["시작"] + " ~ " + h["검증기간"]["종료"] + "</td>" +
+          "<td>" + h["선정조건"] + "</td>" +
+          "<td>" + h["상태"] + "</td>";
+        historyBody.appendChild(tr);
+      });
+      historyTable.appendChild(historyBody);
+      historyWrap.appendChild(historyTable);
+      resultView.appendChild(historyWrap);
+    }
+
+    // ⑦ 학습 vs 검증(OOS) 성과 비교
+    var compareTitle = document.createElement("h3");
+    compareTitle.textContent = "학습 vs 검증(OOS) 성과 비교";
+    resultView.appendChild(compareTitle);
+    var compareDesc = document.createElement("p");
+    compareDesc.className = "desc";
+    compareDesc.textContent = "'차이'는 검증 수익률에서 학습 수익률을 뺀 값입니다. 학습기간에서는 좋았지만 검증기간에서 크게 나빠진 폴드를 찾는 표입니다.";
+    resultView.appendChild(compareDesc);
+    var compareWrap = document.createElement("div");
+    compareWrap.className = "table-scroll";
+    var compareTable = document.createElement("table");
+    var compareThead = document.createElement("thead");
+    compareThead.innerHTML =
+      "<tr><th>폴드</th><th>학습 수익률</th><th>검증 수익률</th><th>차이</th>" +
+      "<th>학습 최대낙폭</th><th>검증 최대낙폭</th></tr>";
+    compareTable.appendChild(compareThead);
+    var compareBody = document.createElement("tbody");
+    folds.forEach(function (fold) {
+      var train = fold["학습기간_성과"] || {};
+      var test = fold["검증기간_성과"] || {};
+      var hasDiff = train["누적수익률"] !== null && train["누적수익률"] !== undefined &&
+        test["누적수익률"] !== null && test["누적수익률"] !== undefined;
+      var diff = hasDiff ? Math.round((test["누적수익률"] - train["누적수익률"]) * 100) / 100 : null;
+      var diffText = diff === null ? "-" : (diff > 0 ? "+" : "") + diff + "%p";
+      var tr = document.createElement("tr");
+      tr.innerHTML =
+        "<td>" + fold["폴드"] + "</td>" +
+        "<td>" + fmtCell(train["누적수익률"], "%") + "</td>" +
+        "<td>" + fmtCell(test["누적수익률"], "%") + "</td>" +
+        "<td class=\"result-tag " + resultLabelClass(diff) + "\">" + diffText + "</td>" +
+        "<td>" + fmtCell(train["최대낙폭"], "%") + "</td>" +
+        "<td>" + fmtCell(test["최대낙폭"], "%") + "</td>";
+      compareBody.appendChild(tr);
+    });
+    compareTable.appendChild(compareBody);
+    compareWrap.appendChild(compareTable);
+    resultView.appendChild(compareWrap);
+
+    // ⑧ 전체기간 최적화 vs Walk-forward
     if (baseline.length > 0) {
-      var baseBox = document.createElement("div");
-      baseBox.className = "similar-box";
-      var baseTitle = document.createElement("p");
-      baseTitle.className = "desc";
-      var baseStrong = document.createElement("strong");
-      baseStrong.textContent = "비교: 기존 방식(전체 기간에서 한 번에 고른 1위)";
-      baseTitle.appendChild(baseStrong);
-      baseBox.appendChild(baseTitle);
+      var vsTitle = document.createElement("h3");
+      vsTitle.textContent = "전체기간 최적화 vs Walk-forward";
+      resultView.appendChild(vsTitle);
       var best = baseline[0];
-      var baseLine = document.createElement("p");
-      baseLine.className = "desc";
-      baseLine.textContent =
-        best["strategy_name"] + " — 전체 기간 수익률 " + best["수익률"] + "%, 최대낙폭 " +
-        best["최대낙폭"] + "%. 이 조건이 위 폴드들의 '선정조건' 칸에도 반복해서 나오는지 " +
-        "직접 견줘 보세요. 전체 기간 1위와 자주 다른 조건이 뽑혔다면, 전체 기간 1위는 " +
-        "그 기간에만 맞았던 조건(과최적화)일 수 있습니다.";
-      baseBox.appendChild(baseLine);
-      resultView.appendChild(baseBox);
+      var vsWrap = document.createElement("div");
+      vsWrap.className = "table-scroll";
+      var vsTable = document.createElement("table");
+      var vsThead = document.createElement("thead");
+      vsThead.innerHTML = "<tr><th>항목</th><th>전체기간 최적화</th><th>Walk-forward OOS</th></tr>";
+      vsTable.appendChild(vsThead);
+      var vsBody = document.createElement("tbody");
+      [
+        ["분석 방식", "전체 데이터를 보고 최적 조건 선택", "학습기간 데이터로 조건 선정 후 검증기간에 적용"],
+        ["선정 전략", best["strategy_name"], folds.length + "개 폴드별로 다를 수 있음(폴드별 상세 표 참고)"],
+        ["누적수익률", fmtCell(best["수익률"], "%"), fmtCell(combined["누적수익률"], "%")],
+        ["CAGR", fmtCell(baselineMetrics["CAGR"], "%"), fmtCell(combined["CAGR"], "%")],
+        ["최대낙폭", fmtCell(best["최대낙폭"], "%"), fmtCell(combined["최대낙폭"], "%")],
+        ["Calmar", fmtCell(baselineMetrics["Calmar"]), fmtCell(combined["Calmar"])],
+        ["거래횟수", fmtCell(baselineMetrics["거래횟수"]), fmtCell(combined["거래횟수"])],
+        ["검증 데이터 사용 여부", "전체 데이터 사용", "각 검증기간은 그 이전 데이터로만 조건 선정"],
+      ].forEach(function (row) {
+        var tr = document.createElement("tr");
+        tr.innerHTML = "<td>" + row[0] + "</td><td>" + row[1] + "</td><td>" + row[2] + "</td>";
+        vsBody.appendChild(tr);
+      });
+      vsTable.appendChild(vsBody);
+      vsWrap.appendChild(vsTable);
+      resultView.appendChild(vsWrap);
+
+      var vsNote = document.createElement("p");
+      vsNote.className = "desc";
+      vsNote.textContent =
+        "전체기간 최적화는 전체 데이터를 이용해 조건을 선택한 결과이며, Walk-forward는 각 검증기간 " +
+        "이전의 데이터만 이용하여 조건을 선정한 결과입니다. 두 결과의 차이를 통해 과거 최적화 결과와 " +
+        "미래 검증 성과의 차이를 확인할 수 있습니다.";
+      resultView.appendChild(vsNote);
     }
   }
 
