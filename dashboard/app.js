@@ -95,19 +95,16 @@
     }
   }
 
-  // ── 1. 시세 수집 ───────────────────────────────────────
-  var pricesForm = document.getElementById("form-prices");
-  var pricesStatus = document.getElementById("prices-status");
-  var priceCollectionPollTimer = null;
-
-  // 수집이 끝나도 화면에 알림이 없어서 '조회하기'를 눌러 봐야만 알 수 있었다.
-  // GitHub Actions 실행 상태를 직접 물어봐서, 끝나면 자동으로 알려준다.
-  // daily.csv 파일의 마지막 수정 시각만 보면 안 된다. 이미 최신이라 새로
+  // GitHub Actions 실행이 끝나도 화면에 알림이 없어서 '조회하기'를 눌러
+  // 봐야만 아는지 안 아는지 알 수 있었다. 실행 상태를 직접 물어봐서,
+  // 끝나면 자동으로 알려준다. 시세 수집의 daily.csv, 전략 비교의 결과
+  // JSON 둘 다 쓸 수 있게 워크플로 파일 이름을 인자로 받는다(README
+  // 참고). 파일의 마지막 수정 시각만 보면 안 된다. 이미 최신이라 새로
   // 받을 게 없는 날은 수정 시각이 안 바뀌는데, 그걸 "아직 안 끝났다"로
   // 잘못 읽게 된다.
-  function pollPriceCollection(previousRunId, symbolsLabel, attempt) {
+  function pollWorkflowRun(workflowFile, statusEl, previousRunId, attempt, setTimer, onDone) {
     var maxAttempts = 60; // 10초 간격으로 최대 10분
-    fetch(URLS.checkRun + "?workflow=update-prices.yml")
+    fetch(URLS.checkRun + "?workflow=" + encodeURIComponent(workflowFile))
       .then(function (res) {
         if (!res.ok) throw new Error("응답 코드 " + res.status);
         return res.json();
@@ -118,37 +115,36 @@
 
         if (!isNewRun || latest.status !== "completed") {
           if (attempt >= maxAttempts) {
-            setStatus(pricesStatus, "err", "실행 확인이 오래 걸립니다. 아래 2번에서 새로고침해 보세요.");
-            priceCollectionPollTimer = null;
+            setStatus(statusEl, "err", "실행 확인이 오래 걸립니다. 잠시 뒤 새로고침해 보세요.");
+            setTimer(null);
             return;
           }
-          priceCollectionPollTimer = setTimeout(function () {
-            pollPriceCollection(previousRunId, symbolsLabel, attempt + 1);
-          }, 10000);
+          setTimer(setTimeout(function () {
+            pollWorkflowRun(workflowFile, statusEl, previousRunId, attempt + 1, setTimer, onDone);
+          }, 10000));
           return;
         }
 
-        priceCollectionPollTimer = null;
-        if (latest.conclusion === "success") {
-          setStatus(pricesStatus, "ok", "완료됐습니다(" + symbolsLabel + "). 아래 2번에 자동으로 반영했습니다.");
-          notifyIfPermitted("시세 수집 완료", symbolsLabel + " 수집이 끝났습니다.");
-          refreshPricesListBtn.click();
-        } else {
-          setStatus(pricesStatus, "err", "수집이 실패로 끝났습니다(" + latest.conclusion + "). GitHub Actions 로그를 확인해야 합니다.");
-          notifyIfPermitted("시세 수집 실패", symbolsLabel + " 수집이 실패했습니다.");
-        }
+        setTimer(null);
+        onDone(latest);
       })
       .catch(function (err) {
         if (attempt >= maxAttempts) {
-          setStatus(pricesStatus, "err", "진행 확인 중 오류가 반복됩니다: " + err.message);
-          priceCollectionPollTimer = null;
+          setStatus(statusEl, "err", "진행 확인 중 오류가 반복됩니다: " + err.message);
+          setTimer(null);
           return;
         }
-        priceCollectionPollTimer = setTimeout(function () {
-          pollPriceCollection(previousRunId, symbolsLabel, attempt + 1);
-        }, 10000);
+        setTimer(setTimeout(function () {
+          pollWorkflowRun(workflowFile, statusEl, previousRunId, attempt + 1, setTimer, onDone);
+        }, 10000));
       });
   }
+
+  // ── 1. 시세 수집 ───────────────────────────────────────
+  var pricesForm = document.getElementById("form-prices");
+  var pricesStatus = document.getElementById("prices-status");
+  var priceCollectionPollTimer = null;
+  function setPriceCollectionPollTimer(t) { priceCollectionPollTimer = t; }
 
   pricesForm.addEventListener("submit", function (event) {
     event.preventDefault();
@@ -187,7 +183,16 @@
           if (!res.ok) throw new Error("응답 코드 " + res.status);
           setStatus(pricesStatus, "", "요청을 보냈습니다. 완료되면 자동으로 알려 드립니다...");
           priceCollectionPollTimer = setTimeout(function () {
-            pollPriceCollection(previousRunId, symbols, 1);
+            pollWorkflowRun("update-prices.yml", pricesStatus, previousRunId, 1, setPriceCollectionPollTimer, function (latest) {
+              if (latest.conclusion === "success") {
+                setStatus(pricesStatus, "ok", "완료됐습니다(" + symbols + "). 아래 2번에 자동으로 반영했습니다.");
+                notifyIfPermitted("시세 수집 완료", symbols + " 수집이 끝났습니다.");
+                refreshPricesListBtn.click();
+              } else {
+                setStatus(pricesStatus, "err", "수집이 실패로 끝났습니다(" + latest.conclusion + "). GitHub Actions 로그를 확인해야 합니다.");
+                notifyIfPermitted("시세 수집 실패", symbols + " 수집이 실패했습니다.");
+              }
+            });
           }, 5000);
         });
       })
@@ -718,6 +723,8 @@
 
   var backtestForm = document.getElementById("form-backtest");
   var btStatus = document.getElementById("bt-status");
+  var backtestPollTimer = null;
+  function setBacktestPollTimer(t) { backtestPollTimer = t; }
 
   backtestForm.addEventListener("submit", function (event) {
     event.preventDefault();
@@ -759,22 +766,47 @@
       }
     }
 
+    if (backtestPollTimer) {
+      clearTimeout(backtestPollTimer);
+      backtestPollTimer = null;
+    }
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+
     setStatus(btStatus, "", "요청을 보내는 중입니다...");
-    fetch(URLS.runBacktest, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        symbols: symbols,
-        strategies: JSON.stringify(strategies),
-        capital: capital,
-        start: start,
-        end: end,
-        upload: true,
-      }),
-    })
-      .then(function (res) {
-        if (!res.ok) throw new Error("응답 코드 " + res.status);
-        setStatus(btStatus, "ok", "요청을 보냈습니다. 아래 3번에서 잠시 뒤 새로고침해 확인하세요.");
+    fetch(URLS.checkRun + "?workflow=run-backtest.yml")
+      .then(function (res) { return res.ok ? res.json() : []; })
+      .catch(function () { return []; })
+      .then(function (beforeRuns) {
+        var previousRunId = beforeRuns && beforeRuns[0] ? beforeRuns[0].id : null;
+        return fetch(URLS.runBacktest, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            symbols: symbols,
+            strategies: JSON.stringify(strategies),
+            capital: capital,
+            start: start,
+            end: end,
+            upload: true,
+          }),
+        }).then(function (res) {
+          if (!res.ok) throw new Error("응답 코드 " + res.status);
+          setStatus(btStatus, "", "요청을 보냈습니다. 완료되면 자동으로 알려 드립니다...");
+          backtestPollTimer = setTimeout(function () {
+            pollWorkflowRun("run-backtest.yml", btStatus, previousRunId, 1, setBacktestPollTimer, function (latest) {
+              if (latest.conclusion === "success") {
+                setStatus(btStatus, "ok", "완료됐습니다(" + symbols + "). 아래 4번에 자동으로 반영했습니다.");
+                notifyIfPermitted("전략 비교 완료", symbols + " 비교 계산이 끝났습니다.");
+                refreshBtn.click();
+              } else {
+                setStatus(btStatus, "err", "계산이 실패로 끝났습니다(" + latest.conclusion + "). GitHub Actions 로그를 확인해야 합니다.");
+                notifyIfPermitted("전략 비교 실패", symbols + " 비교 계산이 실패했습니다.");
+              }
+            });
+          }, 5000);
+        });
       })
       .catch(function (err) {
         setStatus(btStatus, "err", "요청을 보내지 못했습니다: " + err.message);
