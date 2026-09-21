@@ -8,6 +8,15 @@ muwon406(src/muwon/cloud/gdrive_sync.py)과 같은 방식이다. GitHub Actions�
 대상 폴더가 공유 드라이브 안에 있어서 모든 호출에
 `supportsAllDrives=True`가 필요하다. 빠뜨리면 파일이 있어도 못 찾은
 것처럼 동작한다.
+
+**서비스 계정은 새 파일을 처음 만들 때(create)만 storageQuotaExceeded로
+막힌다**(2026-09-21에 실제로 겪었다). 공유 드라이브 멤버로 넣어도, 폴더를
+새로 만들거나 있는 파일을 고치는 것은 되는데 파일을 새로 만드는 것만
+안 됐다. 구글 API 오류 메시지가 권하는 대로 도메인 위임을 쓴다.
+`GDRIVE_IMPERSONATE_EMAIL`이 있으면 그 사람 명의로 행동해서, 서비스 계정이
+아니라 그 사람 소유로 파일이 만들어진다. 이 환경변수가 없으면 예전처럼
+서비스 계정 그대로 인증한다(도메인 위임을 아직 안 걸었을 때도 동작하게
+하기 위해서다).
 """
 
 from __future__ import annotations
@@ -28,6 +37,11 @@ def _build_service():
         raise SystemExit("GDRIVE_SA_KEY_JSON 환경변수가 없습니다 (서비스 계정 JSON 키 원문).")
     info = json.loads(key_json)
     creds = service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
+
+    impersonate = os.environ.get("GDRIVE_IMPERSONATE_EMAIL")
+    if impersonate:
+        creds = creds.with_subject(impersonate)
+
     return build("drive", "v3", credentials=creds)
 
 

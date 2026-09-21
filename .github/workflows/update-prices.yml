@@ -38,5 +38,6 @@ jobs:
           SYMBOLS: ${{ github.event.inputs.symbols }}
           FULL_REFRESH: ${{ github.event.inputs.full_refresh }}
           GDRIVE_SA_KEY_JSON: ${{ secrets.GDRIVE_SA_KEY_JSON }}
+          GDRIVE_IMPERSONATE_EMAIL: master@sondullab.com
         run: |
           python scripts/update_prices.py --symbols "$SYMBOLS" --full-refresh "$FULL_REFRESH"
