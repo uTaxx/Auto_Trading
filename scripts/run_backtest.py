@@ -113,6 +113,8 @@ def main() -> None:
                     "invested_cumulative": round(row["invested_cumulative"]),
                     "realized_pnl": round(row["realized_pnl"]),
                     "unrealized_pnl": round(row["unrealized_pnl"]),
+                    "buy_amount": round(row["buy_amount"]) if row["buy_amount"] > 0 else 0,
+                    "sell_type": row["sell_type"] if pd.notna(row["sell_type"]) else None,
                 }
                 for _, row in result.iterrows()
             ]

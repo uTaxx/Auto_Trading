@@ -93,24 +93,38 @@ def build_symbol_report(
 
     ws2 = wb.create_sheet("일별 시계열")
     daily_headers = [
-        "거래일", "종가", "현금", "보유수량", "평균단가",
-        "누적투자금", "평가금액", "실현손익", "평가손익", "손익합계", "총자산",
+        "거래일", "종가", "당일매수금액", "당일매도금액", "매도유형", "현금", "보유수량", "평균단가",
+        "누적투자금", "평가금액", "실현손익", "평가손익", "손익합계", "총자산", "누적수익률",
     ]
     _write_header_row(ws2, 1, daily_headers)
     for r_idx, row_data in enumerate(daily.itertuples(index=False), start=2):
+        buy_amount = float(getattr(row_data, "buy_amount", 0.0) or 0.0)
+        sell_amount = float(getattr(row_data, "sell_amount", 0.0) or 0.0)
+        sell_type = getattr(row_data, "sell_type", None)
+        if pd.isna(sell_type):  # 매도 없는 날은 pandas가 None을 NaN으로 바꿔 둔다
+            sell_type = None
+        total_pnl = float(row_data.total_pnl)
+
         ws2.cell(row=r_idx, column=1, value=str(row_data.trade_date))
         ws2.cell(row=r_idx, column=2, value=round(float(row_data.close))).number_format = MONEY_FORMAT
-        ws2.cell(row=r_idx, column=3, value=round(float(row_data.cash))).number_format = MONEY_FORMAT
-        ws2.cell(row=r_idx, column=4, value=float(row_data.shares)).number_format = SHARE_FORMAT
-        ws2.cell(row=r_idx, column=5, value=round(float(row_data.avg_cost))).number_format = MONEY_FORMAT
-        ws2.cell(row=r_idx, column=6, value=round(float(row_data.invested_cumulative))).number_format = MONEY_FORMAT
-        ws2.cell(row=r_idx, column=7, value=round(float(row_data.market_value))).number_format = MONEY_FORMAT
-        ws2.cell(row=r_idx, column=8, value=round(float(row_data.realized_pnl))).number_format = MONEY_FORMAT
-        ws2.cell(row=r_idx, column=9, value=round(float(row_data.unrealized_pnl))).number_format = MONEY_FORMAT
-        ws2.cell(row=r_idx, column=10, value=round(float(row_data.total_pnl))).number_format = MONEY_FORMAT
-        ws2.cell(row=r_idx, column=11, value=round(float(row_data.total_value))).number_format = MONEY_FORMAT
+        if buy_amount > 0:
+            ws2.cell(row=r_idx, column=3, value=round(buy_amount)).number_format = MONEY_FORMAT
+        if sell_amount > 0:
+            ws2.cell(row=r_idx, column=4, value=round(sell_amount)).number_format = MONEY_FORMAT
+        ws2.cell(row=r_idx, column=5, value=sell_type)
+        ws2.cell(row=r_idx, column=6, value=round(float(row_data.cash))).number_format = MONEY_FORMAT
+        ws2.cell(row=r_idx, column=7, value=float(row_data.shares)).number_format = SHARE_FORMAT
+        ws2.cell(row=r_idx, column=8, value=round(float(row_data.avg_cost))).number_format = MONEY_FORMAT
+        ws2.cell(row=r_idx, column=9, value=round(float(row_data.invested_cumulative))).number_format = MONEY_FORMAT
+        ws2.cell(row=r_idx, column=10, value=round(float(row_data.market_value))).number_format = MONEY_FORMAT
+        ws2.cell(row=r_idx, column=11, value=round(float(row_data.realized_pnl))).number_format = MONEY_FORMAT
+        ws2.cell(row=r_idx, column=12, value=round(float(row_data.unrealized_pnl))).number_format = MONEY_FORMAT
+        ws2.cell(row=r_idx, column=13, value=round(total_pnl)).number_format = MONEY_FORMAT
+        ws2.cell(row=r_idx, column=14, value=round(float(row_data.total_value))).number_format = MONEY_FORMAT
+        if capital:
+            ws2.cell(row=r_idx, column=15, value=total_pnl / capital).number_format = PERCENT_FORMAT
     ws2.freeze_panes = "A2"
-    _set_column_widths(ws2, [12, 12, 13, 12, 12, 14, 14, 13, 13, 13, 14])
+    _set_column_widths(ws2, [12, 12, 13, 13, 9, 12, 12, 12, 14, 14, 13, 13, 13, 14, 12])
 
     return wb
 

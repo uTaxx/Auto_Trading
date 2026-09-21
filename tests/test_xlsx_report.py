@@ -71,9 +71,12 @@ def test_종목_보고서는_요약과_일별_시계열_두_시트를_만든다(
     assert summary_ws.cell(row=7, column=14).value == -0.05
 
     daily_ws = wb["일별 시계열"]
-    assert [cell.value for cell in daily_ws[1]][:4] == ["거래일", "종가", "현금", "보유수량"]
+    assert [cell.value for cell in daily_ws[1]][:5] == ["거래일", "종가", "당일매수금액", "당일매도금액", "매도유형"]
     assert daily_ws.max_row == 1 + len(result)  # 헤더 한 줄 + 거래일 수만큼
     assert daily_ws.cell(row=2, column=1).value == "2024-01-02"
+    # 첫날 일회 매수가 실행됐으니 당일매수금액(3번째 칸)이 찍혀야 한다
+    assert daily_ws.cell(row=2, column=3).value == 1_000_000
+    assert daily_ws.cell(row=3, column=3).value is None  # 둘째 날은 안 샀다
 
 
 def test_비교_보고서는_수익률_부호에_따라_글자색이_다르다():

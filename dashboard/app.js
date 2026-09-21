@@ -1080,6 +1080,27 @@
       svg.appendChild(label);
     });
 
+    // 거래일 몇 군데를 골라 x축에 날짜를 적는다(처음, 끝, 그 사이 고르게).
+    var longestKey = keys.reduce(function (a, b) { return series[a].length >= series[b].length ? a : b; });
+    var longestPoints = series[longestKey];
+    var xTickCount = Math.min(5, longestPoints.length);
+    for (var ti = 0; ti < xTickCount; ti++) {
+      var idx2 = xTickCount <= 1 ? 0 : Math.round((ti / (xTickCount - 1)) * (longestPoints.length - 1));
+      var xTickText = document.createElementNS(svgNS, "text");
+      xTickText.setAttribute("x", xAt(idx2, longestPoints.length));
+      xTickText.setAttribute("y", height - 6);
+      xTickText.setAttribute("text-anchor", ti === 0 ? "start" : ti === xTickCount - 1 ? "end" : "middle");
+      xTickText.setAttribute("font-size", "10");
+      xTickText.setAttribute("fill", "currentColor");
+      xTickText.setAttribute("opacity", "0.6");
+      xTickText.textContent = longestPoints[idx2].trade_date;
+      svg.appendChild(xTickText);
+    }
+
+    var buyColor = "#2f6f65";
+    var takeProfitColor = "#c98f1c";
+    var stopLossColor = "#b5502e";
+
     keys.forEach(function (k, idx) {
       var points = series[k];
       var color = PALETTE[idx % PALETTE.length];
@@ -1092,6 +1113,26 @@
       path.setAttribute("stroke", color);
       path.setAttribute("stroke-width", "2");
       svg.appendChild(path);
+
+      // 그날 매수·익절 매도·손절 매도가 있었으면 점으로 표시한다.
+      points.forEach(function (p, i) {
+        var markerColor = null;
+        if (p.sell_type === "익절") markerColor = takeProfitColor;
+        else if (p.sell_type === "손절") markerColor = stopLossColor;
+        else if (p.buy_amount) markerColor = buyColor;
+        if (!markerColor) return;
+        var dot = document.createElementNS(svgNS, "circle");
+        dot.setAttribute("cx", xAt(i, points.length).toFixed(1));
+        dot.setAttribute("cy", yAt(p.total_value).toFixed(1));
+        dot.setAttribute("r", p.sell_type ? 3 : 2.3);
+        dot.setAttribute("fill", markerColor);
+        dot.setAttribute("stroke", "var(--surface)");
+        dot.setAttribute("stroke-width", "0.7");
+        var title = document.createElementNS(svgNS, "title");
+        title.textContent = p.trade_date + " " + (p.sell_type ? p.sell_type + " 매도" : "매수 " + fmtNumber(p.buy_amount) + "원");
+        dot.appendChild(title);
+        svg.appendChild(dot);
+      });
     });
 
     var wrap = document.createElement("div");
@@ -1106,6 +1147,19 @@
       item.appendChild(swatch);
       item.appendChild(document.createTextNode(k + " 총자산"));
       legend.appendChild(item);
+    });
+    [
+      { color: buyColor, label: "매수 시점" },
+      { color: takeProfitColor, label: "익절 매도" },
+      { color: stopLossColor, label: "손절 매도" },
+    ].forEach(function (item) {
+      var span = document.createElement("span");
+      var i = document.createElement("i");
+      i.style.background = item.color;
+      i.style.borderRadius = "50%";
+      span.appendChild(i);
+      span.appendChild(document.createTextNode(item.label));
+      legend.appendChild(span);
     });
     wrap.appendChild(legend);
 

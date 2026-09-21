@@ -146,6 +146,8 @@ def run_backtest(prices: pd.DataFrame, capital: float, strategy: Strategy) -> pd
 
     for i, row in prices.iterrows():
         close = float(row["close"])
+        sell_amount = 0.0
+        sell_type = None  # "익절" | "손절" | None
 
         if shares > 0 and avg_cost > 0:
             ret = close / avg_cost - 1
@@ -155,6 +157,8 @@ def run_backtest(prices: pd.DataFrame, capital: float, strategy: Strategy) -> pd
                 proceeds = shares * close
                 realized_pnl += proceeds - shares * avg_cost
                 cash += proceeds
+                sell_amount = proceeds
+                sell_type = "익절" if hit_take_profit else "손절"
                 shares = 0.0
                 avg_cost = 0.0
 
@@ -184,6 +188,9 @@ def run_backtest(prices: pd.DataFrame, capital: float, strategy: Strategy) -> pd
                 "unrealized_pnl": unrealized_pnl,
                 "total_pnl": realized_pnl + unrealized_pnl,
                 "total_value": cash + market_value,
+                "buy_amount": buy_amount,
+                "sell_amount": sell_amount,
+                "sell_type": sell_type,
             }
         )
 

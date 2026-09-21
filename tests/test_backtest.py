@@ -258,6 +258,21 @@ def test_손절선에서_전량_매도한다():
     # 3번째 줄(인덱스 2)에서 -20% 도달, 손절선(-10%)을 넘어서 매도된다
     assert result.iloc[2]["shares"] == 0.0
     assert result.iloc[2]["realized_pnl"] < 0
+    assert result.iloc[2]["sell_type"] == "손절"
+    assert result.iloc[2]["sell_amount"] > 0
+    assert result.iloc[0]["buy_amount"] == pytest.approx(1_000_000)
+    assert result.iloc[1]["buy_amount"] == 0.0
+    assert pd.isna(result.iloc[1]["sell_type"])
+
+
+def test_익절선에서_전량_매도한다():
+    closes = [100.0, 130.0]  # +30%
+    prices = _prices(closes)
+    strategy = Strategy(key="lump_sum", name="일회", buy_plan=LumpSum(1_000_000), take_profit_pct=0.2)
+    result = run_backtest(prices, capital=1_000_000, strategy=strategy)
+
+    assert result.iloc[1]["sell_type"] == "익절"
+    assert result.iloc[1]["sell_amount"] > 0
 
 
 def test_손절선을_안_주면_안_판다():
