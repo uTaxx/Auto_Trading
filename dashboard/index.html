@@ -32,8 +32,22 @@
     </form>
   </section>
 
+  <section class="card" id="section-price-status">
+    <h2>2. 수집 결과 조회</h2>
+    <p class="desc">종목별로 구글 드라이브에 시세가 실제로 저장됐는지, 언제
+      마지막으로 저장됐는지 확인합니다. 시세 수집 요청 직후에는 아직 진행
+      중일 수 있으니 잠시 뒤 새로고침하세요.</p>
+    <button type="button" id="refresh-prices-list">목록 새로고침</button>
+    <div class="status" id="prices-list-status" role="status" aria-live="polite"></div>
+    <table id="prices-table">
+      <thead><tr><th>종목</th><th>상태</th><th>마지막 저장(KST)</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div id="price-detail"></div>
+  </section>
+
   <section class="card" id="section-backtest">
-    <h2>2. 전략 비교</h2>
+    <h2>3. 전략 비교</h2>
     <p class="desc">아래 값을 전부 직접 입력해야 계산됩니다. 미리 채워 둔 숫자는
       시작값일 뿐이고, 바꾸지 않으면 그 값 그대로 씁니다.</p>
 
@@ -63,7 +77,7 @@
   </section>
 
   <section class="card" id="section-results">
-    <h2>3. 비교 결과</h2>
+    <h2>4. 비교 결과</h2>
     <p class="desc">계산이 끝나면 여기서 불러올 수 있습니다. 요청 직후에는 아직
       없을 수 있으니 잠시 뒤 새로고침하세요.</p>
     <div class="row">

@@ -4,6 +4,8 @@
   var N8N_BASE = "https://sondullab.app.n8n.cloud/webhook";
   var URLS = {
     updatePrices: N8N_BASE + "/auto-trading-update-prices",
+    listPrices: N8N_BASE + "/auto-trading-list-prices",
+    getPrice: N8N_BASE + "/auto-trading-get-price",
     runBacktest: N8N_BASE + "/auto-trading-run-backtest",
     listResults: N8N_BASE + "/auto-trading-list-results",
     getResult: N8N_BASE + "/auto-trading-get-result",
@@ -112,7 +114,106 @@
       });
   });
 
-  // ── 2. 전략 비교 입력 ──────────────────────────────────
+  // ── 2. 수집 결과 조회 ──────────────────────────────────
+  var refreshPricesListBtn = document.getElementById("refresh-prices-list");
+  var pricesListStatus = document.getElementById("prices-list-status");
+  var pricesTableBody = document.querySelector("#prices-table tbody");
+  var priceDetailEl = document.getElementById("price-detail");
+
+  refreshPricesListBtn.addEventListener("click", function () {
+    setStatus(pricesListStatus, "", "목록을 불러오는 중입니다...");
+    priceDetailEl.innerHTML = "";
+    fetch(URLS.listPrices)
+      .then(function (res) {
+        if (!res.ok) throw new Error("응답 코드 " + res.status);
+        return res.json();
+      })
+      .then(function (rows) {
+        pricesTableBody.innerHTML = "";
+        if (!rows || rows.length === 0) {
+          setStatus(pricesListStatus, "ok", "아직 수집한 종목이 없습니다.");
+          return;
+        }
+        rows.forEach(function (row) {
+          var tr = document.createElement("tr");
+
+          var tdSymbol = document.createElement("td");
+          tdSymbol.textContent = row.symbol;
+          tr.appendChild(tdSymbol);
+
+          var tdState = document.createElement("td");
+          tdState.textContent = row["수집됨"] ? "수집됨" : "아직 없음";
+          tr.appendChild(tdState);
+
+          var tdTime = document.createElement("td");
+          tdTime.textContent = row.modified_time ? fmtDateTimeKST(row.modified_time) : "-";
+          tr.appendChild(tdTime);
+
+          var tdAction = document.createElement("td");
+          if (row.file_id) {
+            var btn = document.createElement("button");
+            btn.type = "button";
+            btn.textContent = "내용 보기";
+            btn.addEventListener("click", function () { loadPriceDetail(row.symbol, row.file_id); });
+            tdAction.appendChild(btn);
+          }
+          tr.appendChild(tdAction);
+
+          pricesTableBody.appendChild(tr);
+        });
+        setStatus(pricesListStatus, "ok", rows.length + "개 종목 폴더를 찾았습니다.");
+      })
+      .catch(function (err) {
+        setStatus(pricesListStatus, "err", "목록을 불러오지 못했습니다: " + err.message);
+      });
+  });
+
+  function parseDailyCsv(text) {
+    var lines = text.split(/\r?\n/).filter(function (line) { return line.trim().length > 0; });
+    if (lines.length <= 1) return { rows: 0, startDate: null, endDate: null, lastClose: null };
+    var header = lines[0].split(",");
+    var dateIdx = header.indexOf("trade_date");
+    var closeIdx = header.indexOf("close");
+    var first = lines[1].split(",");
+    var last = lines[lines.length - 1].split(",");
+    return {
+      rows: lines.length - 1,
+      startDate: dateIdx >= 0 ? first[dateIdx] : null,
+      endDate: dateIdx >= 0 ? last[dateIdx] : null,
+      lastClose: closeIdx >= 0 ? last[closeIdx] : null,
+    };
+  }
+
+  function loadPriceDetail(symbol, fileId) {
+    priceDetailEl.innerHTML = "";
+    setStatus(pricesListStatus, "", symbol + " 내용을 불러오는 중입니다...");
+    fetch(URLS.getPrice + "?id=" + encodeURIComponent(fileId))
+      .then(function (res) {
+        if (!res.ok) throw new Error("응답 코드 " + res.status);
+        return res.text();
+      })
+      .then(function (text) {
+        var summary = parseDailyCsv(text);
+        var p = document.createElement("p");
+        p.className = "desc";
+        if (summary.rows === 0) {
+          p.textContent = symbol + ": 파일은 있지만 거래일 자료가 없습니다.";
+        } else {
+          p.textContent =
+            symbol + ": 거래일 " + summary.rows + "개, " +
+            (summary.startDate || "?") + " ~ " + (summary.endDate || "?") +
+            (summary.lastClose ? ", 마지막 종가 " + summary.lastClose : "");
+        }
+        priceDetailEl.innerHTML = "";
+        priceDetailEl.appendChild(p);
+        setStatus(pricesListStatus, "ok", symbol + " 내용을 불러왔습니다.");
+      })
+      .catch(function (err) {
+        setStatus(pricesListStatus, "err", symbol + " 내용을 불러오지 못했습니다: " + err.message);
+      });
+  }
+
+  // ── 3. 전략 비교 입력 ──────────────────────────────────
   var strategyListEl = document.getElementById("strategy-list");
   var addStrategyBtn = document.getElementById("add-strategy");
   var strategyBlocks = []; // { id, el, type }
@@ -364,7 +465,7 @@
       });
   });
 
-  // ── 3. 결과 조회 ───────────────────────────────────────
+  // ── 4. 결과 조회 ───────────────────────────────────────
   var refreshBtn = document.getElementById("refresh-results");
   var resultSelect = document.getElementById("result-select");
   var resultsStatus = document.getElementById("results-status");
