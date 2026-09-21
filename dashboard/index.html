@@ -12,129 +12,159 @@
   <p class="lede">누적 매수 기법 전략 시뮬레이터. muwon406과 분리된 별도 저장소입니다.</p>
 </header>
 
+<nav class="tabs" id="main-tabs" role="tablist" aria-label="메뉴">
+  <button type="button" class="tab-btn" data-tab="data" role="tab" aria-selected="true">DATA 수집</button>
+  <button type="button" class="tab-btn" data-tab="strategy" role="tab" aria-selected="false">전략분석</button>
+</nav>
+
 <main>
 
-  <section class="card" id="section-prices">
-    <h2>1. 시세 수집</h2>
-    <p class="desc">종목을 입력하고 누르면 야후에서 일봉을 받아 구글 드라이브
-      <code>01_시세원본/&lt;종목&gt;/daily.csv</code>에 저장합니다. 실제 처리는
-      GitHub Actions에서 진행되며 몇 분 걸릴 수 있습니다. 완료되면 이 화면이
-      자동으로 확인해서 알려주고, 아래 2번 표도 자동으로 새로고침합니다.</p>
-    <form id="form-prices">
-      <label>종목 (쉼표로 구분)
-        <input type="text" id="prices-symbols" value="SPY, QQQ" autocomplete="off" spellcheck="false">
-      </label>
-      <label class="row">
-        <input type="checkbox" id="prices-full-refresh">
-        처음부터 10년치 다시 받기 (안 켜면 이어받기)
-      </label>
-      <button type="submit">시세 받아오기</button>
-      <div class="status" id="prices-status" role="status" aria-live="polite"></div>
-    </form>
-  </section>
+  <div class="tab-panel" data-panel="data">
 
-  <section class="card" id="section-price-status">
-    <h2>2. 수집 결과 조회</h2>
-    <p class="desc">종목별로 구글 드라이브에 시세가 실제로 저장됐는지, 언제
-      마지막으로 저장됐는지 확인합니다. 시세 수집 요청 직후에는 아직 진행
-      중일 수 있으니 잠시 뒤 새로고침하세요. '내용 보기'를 누르면 최근
-      2주·한 달·두 달의 값 움직임과 가장 비슷했던 과거 구간, 그 구간이
-      끝난 뒤 같은 길이만큼 실제로 어떻게 됐는지, 그리고 그 흐름을 지금
-      시점에 그대로 적용해 본 그래프까지 같이 보여줍니다.</p>
-    <button type="button" id="refresh-prices-list">목록 새로고침</button>
-    <div class="status" id="prices-list-status" role="status" aria-live="polite"></div>
-    <table id="prices-table">
-      <thead><tr><th>종목</th><th>상태</th><th>마지막 저장(KST)</th><th></th></tr></thead>
-      <tbody></tbody>
-    </table>
-    <div id="price-detail"></div>
-  </section>
-
-  <section class="card" id="section-backtest">
-    <h2>3. 전략 비교</h2>
-    <p class="desc">아래 값을 전부 직접 입력해야 계산됩니다. 미리 채워 둔 숫자는
-      시작값일 뿐이고, 바꾸지 않으면 그 값 그대로 씁니다. 계산이 끝나면 화면에
-      뜨는 것과 별개로, 종목·전략 조합마다 서식 있는 엑셀 파일을 구글 드라이브
-      <code>02_백테스트결과/&lt;종목&gt;/</code>에, 이번 비교 전체를 담은 엑셀을
-      <code>02_백테스트결과/종목비교결과/</code>에 올립니다. 계산이 끝나면
-      이 화면이 자동으로 확인해서 알려주고, 아래 4번 표도 자동으로
-      새로고침합니다.</p>
-
-    <form id="form-backtest">
-      <div class="grid-2">
-        <label>총자본(원)
-          <input type="number" id="bt-capital" value="10000000" min="1" required>
+    <section class="card" id="section-prices">
+      <h2>시세 수집</h2>
+      <p class="desc">종목을 입력하고 누르면 야후에서 일봉을 받아 구글 드라이브
+        <code>01_시세원본/&lt;종목&gt;/daily.csv</code>에 저장합니다. 실제 처리는
+        GitHub Actions에서 진행되며 몇 분 걸릴 수 있습니다. 완료되면 이 화면이
+        자동으로 확인해서 알려주고, 아래 수집 결과 조회 표도 자동으로
+        새로고침합니다.</p>
+      <form id="form-prices">
+        <label>종목 (쉼표로 구분)
+          <input type="text" id="prices-symbols" value="SPY, QQQ" autocomplete="off" spellcheck="false">
         </label>
-        <label>종목 (쉼표로 구분, 이미 수집한 종목만)
-          <input type="text" id="bt-symbols" value="SPY, QQQ" required autocomplete="off" spellcheck="false">
+        <label class="row">
+          <input type="checkbox" id="prices-full-refresh">
+          처음부터 10년치 다시 받기 (안 켜면 이어받기)
         </label>
-        <label>조회 시작일
-          <input type="date" id="bt-start" required>
-        </label>
-        <label>조회 종료일
-          <input type="date" id="bt-end" required>
-        </label>
-      </div>
+        <button type="submit">시세 받아오기</button>
+        <div class="status" id="prices-status" role="status" aria-live="polite"></div>
+      </form>
+    </section>
 
-      <h3>비교할 전략 (최대 5개)</h3>
-      <div id="strategy-list"></div>
-      <button type="button" id="add-strategy">+ 전략 추가</button>
+    <section class="card" id="section-price-status">
+      <h2>수집 결과 조회</h2>
+      <p class="desc">종목별로 구글 드라이브에 시세가 실제로 저장됐는지, 언제
+        마지막으로 저장됐는지 확인합니다. 이 화면을 열면 자동으로 목록을
+        불러옵니다. 시세 수집 요청 직후에는 아직 진행 중일 수 있으니 잠시 뒤
+        새로고침하세요. '내용 보기'를 누르면 값 움직임 그래프와, 최근
+        2주·한 달·두 달과 가장 비슷했던 과거 구간, 그 구간이 끝난 뒤 같은
+        길이만큼 실제로 어떻게 됐는지까지 같이 보여줍니다.</p>
+      <button type="button" id="refresh-prices-list">목록 새로고침</button>
+      <div class="status" id="prices-list-status" role="status" aria-live="polite"></div>
+      <table id="prices-table">
+        <thead><tr><th>종목</th><th>상태</th><th>마지막 저장(KST)</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div id="price-detail"></div>
+    </section>
 
-      <button type="submit" id="bt-submit">비교 계산 요청</button>
-      <div class="status" id="bt-status" role="status" aria-live="polite"></div>
-    </form>
-  </section>
+  </div>
 
-  <section class="card" id="section-results">
-    <h2>4. 비교 결과</h2>
-    <p class="desc">계산이 끝나면 여기서 불러올 수 있습니다. 요청 직후에는 아직
-      없을 수 있으니 잠시 뒤 새로고침하세요.</p>
-    <div class="row">
-      <button type="button" id="refresh-results">결과 목록 새로고침</button>
-      <select id="result-select"><option value="">결과 목록을 새로고침하세요</option></select>
+  <div class="tab-panel" data-panel="strategy" hidden>
+
+    <nav class="subtabs" id="strategy-subtabs" role="tablist" aria-label="전략분석 하위 메뉴">
+      <button type="button" class="subtab-btn" data-subtab="compare" role="tab" aria-selected="true">전략 비교</button>
+      <button type="button" class="subtab-btn" data-subtab="results" role="tab" aria-selected="false">비교 결과</button>
+      <button type="button" class="subtab-btn" data-subtab="optimize" role="tab" aria-selected="false">최적 조건 찾기</button>
+    </nav>
+
+    <div class="subtab-panel" data-subpanel="compare">
+      <section class="card" id="section-backtest">
+        <h2>전략 비교</h2>
+        <p class="desc">아래 값을 전부 직접 입력해야 계산됩니다. 미리 채워 둔 숫자는
+          시작값일 뿐이고, 바꾸지 않으면 그 값 그대로 씁니다. 계산이 끝나면 화면에
+          뜨는 것과 별개로, 종목·전략 조합마다 서식 있는 엑셀 파일을 구글 드라이브
+          <code>02_백테스트결과/&lt;종목&gt;/</code>에, 이번 비교 전체를 담은 엑셀을
+          <code>02_백테스트결과/종목비교결과/</code>에 올립니다. 계산이 끝나면
+          이 화면이 자동으로 확인해서 알려주고, 비교 결과 탭도 자동으로
+          새로고침합니다.</p>
+
+        <form id="form-backtest">
+          <div class="grid-2">
+            <label>총자본(원)
+              <input type="number" id="bt-capital" value="10000000" min="1" required>
+            </label>
+            <label>종목 (쉼표로 구분, 이미 수집한 종목만)
+              <input type="text" id="bt-symbols" value="SPY, QQQ" required autocomplete="off" spellcheck="false">
+            </label>
+          </div>
+          <div class="grid-2">
+            <label>조회 시작일
+              <input type="date" id="bt-start" required>
+            </label>
+            <label>조회 종료일
+              <input type="date" id="bt-end" required>
+            </label>
+          </div>
+
+          <h3>비교할 전략 (최대 5개)</h3>
+          <div id="strategy-list"></div>
+          <button type="button" id="add-strategy">+ 전략 추가</button>
+
+          <button type="submit" id="bt-submit">비교 계산 요청</button>
+          <div class="status" id="bt-status" role="status" aria-live="polite"></div>
+        </form>
+      </section>
     </div>
-    <div class="status" id="results-status" role="status" aria-live="polite"></div>
-    <div id="result-view"></div>
-  </section>
 
-  <section class="card" id="section-optimize">
-    <h2>5. 최적 조건 찾기</h2>
-    <p class="desc">종목 하나와 총자본, 조회기간만 정하면 아래 네 가지 매수 방식의
-      여러 변수 조합을 한꺼번에 계산해서 수익률 순으로 보여줍니다. 후보값은
-      쉼표로 구분해서 넣고, 여기도 미리 채운 숫자는 시작값일 뿐이니 바꿔도
-      됩니다. <strong>1등만 골라내지 않고 계산한 조합 전부를 순위대로
-      남깁니다.</strong> 등락률 기준 비중 조절 매수는 구간을 하나로 단순화해서
-      찾습니다(구간을 여러 개 두는 것은 3번 전략 비교에서 직접 설정하세요).
-      매수 방식마다 익절선·손절선 후보도 따로 넣을 수 있습니다(방식마다
-      끝에 있는 칸입니다). 비워 두면 그 조건 없이 계산합니다. 조합이
-      200개를 넘으면 계산을 거부합니다. 계산이 끝나면 결과는 위 4번
-      표에서 그대로 조회됩니다.</p>
+    <div class="subtab-panel" data-subpanel="results" hidden>
+      <section class="card" id="section-results">
+        <h2>비교 결과</h2>
+        <p class="desc">계산이 끝나면 여기서 불러올 수 있습니다. 요청 직후에는 아직
+          없을 수 있으니 잠시 뒤 새로고침하세요.</p>
+        <div class="row">
+          <button type="button" id="refresh-results">결과 목록 새로고침</button>
+          <select id="result-select"><option value="">결과 목록을 새로고침하세요</option></select>
+        </div>
+        <div class="status" id="results-status" role="status" aria-live="polite"></div>
+        <div id="result-view"></div>
+      </section>
+    </div>
 
-    <form id="form-optimize">
-      <div class="grid-2">
-        <label>총자본(원)
-          <input type="number" id="opt-capital" value="10000000" min="1" required>
-        </label>
-        <label>종목 (하나, 이미 수집한 종목만)
-          <input type="text" id="opt-symbol" value="SPY" required autocomplete="off" spellcheck="false">
-        </label>
-        <label>조회 시작일
-          <input type="date" id="opt-start" required>
-        </label>
-        <label>조회 종료일
-          <input type="date" id="opt-end" required>
-        </label>
-      </div>
+    <div class="subtab-panel" data-subpanel="optimize" hidden>
+      <section class="card" id="section-optimize">
+        <h2>최적 조건 찾기</h2>
+        <p class="desc">종목 하나와 총자본, 조회기간만 정하면 아래 네 가지 매수 방식의
+          여러 변수 조합을 한꺼번에 계산해서 수익률 순으로 보여줍니다. 후보값은
+          쉼표로 구분해서 넣고, 여기도 미리 채운 숫자는 시작값일 뿐이니 바꿔도
+          됩니다. <strong>1등만 골라내지 않고 계산한 조합 전부를 순위대로
+          남깁니다.</strong> 등락률 기준 비중 조절 매수는 구간을 하나로 단순화해서
+          찾습니다(구간을 여러 개 두는 것은 전략 비교에서 직접 설정하세요).
+          매수 방식마다 익절선·손절선 후보도 따로 넣을 수 있습니다(방식마다
+          끝에 있는 칸입니다). 비워 두면 그 조건 없이 계산합니다. 조합이
+          200개를 넘으면 계산을 거부합니다. 계산이 끝나면 결과는 비교 결과
+          탭에서 그대로 조회됩니다.</p>
 
-      <h3>찾아볼 매수 방식과 변수 후보</h3>
-      <div id="optimize-strategy-list"></div>
+        <form id="form-optimize">
+          <div class="grid-2">
+            <label>총자본(원)
+              <input type="number" id="opt-capital" value="10000000" min="1" required>
+            </label>
+            <label>종목 (하나, 이미 수집한 종목만)
+              <input type="text" id="opt-symbol" value="SPY" required autocomplete="off" spellcheck="false">
+            </label>
+          </div>
+          <div class="grid-2">
+            <label>조회 시작일
+              <input type="date" id="opt-start" required>
+            </label>
+            <label>조회 종료일
+              <input type="date" id="opt-end" required>
+            </label>
+          </div>
 
-      <p class="status" id="opt-combo-status" role="status" aria-live="polite"></p>
+          <h3>찾아볼 매수 방식과 변수 후보</h3>
+          <div id="optimize-strategy-list"></div>
 
-      <button type="submit" id="opt-submit">최적 조건 찾기 요청</button>
-      <div class="status" id="opt-status" role="status" aria-live="polite"></div>
-    </form>
-  </section>
+          <p class="status" id="opt-combo-status" role="status" aria-live="polite"></p>
+
+          <button type="submit" id="opt-submit">최적 조건 찾기 요청</button>
+          <div class="status" id="opt-status" role="status" aria-live="polite"></div>
+        </form>
+      </section>
+    </div>
+
+  </div>
 
 </main>
 

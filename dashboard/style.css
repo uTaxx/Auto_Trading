@@ -44,6 +44,43 @@ main {
   gap: 24px;
 }
 
+.tabs, .subtabs {
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.tabs { margin-bottom: 20px; }
+.subtabs { margin-bottom: 16px; }
+
+.tab-btn, .subtab-btn {
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 9px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+}
+.subtab-btn { font-size: 13px; padding: 7px 13px; }
+.tab-btn[aria-selected="true"], .subtab-btn[aria-selected="true"] {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+}
+
+.tab-panel, .subtab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.tab-panel[hidden], .subtab-panel[hidden] {
+  display: none;
+}
+
 header {
   max-width: 720px;
   margin: 0 auto 24px;

@@ -13,6 +13,33 @@
     findBest: N8N_BASE + "/auto-trading-find-best",
   };
 
+  // ── 0. 메뉴 탭 ─────────────────────────────────────────
+  // DATA 수집과 전략분석을 상위 탭으로 나누고, 전략분석 안에 전략
+  // 비교·비교 결과·최적 조건 찾기를 하위 탭으로 둔다. 매매를 실제로
+  // 바꾸는 동작은 없고 화면 표시만 다루므로 여기서 제일 먼저 연결한다.
+  function wireTabs(navSelector, attr) {
+    var buttons = document.querySelectorAll(navSelector + " [data-" + attr + "]");
+    buttons.forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var target = btn.getAttribute("data-" + attr);
+        buttons.forEach(function (b) {
+          var active = b === btn;
+          b.setAttribute("aria-selected", active ? "true" : "false");
+        });
+        document.querySelectorAll("[data-" + (attr === "tab" ? "panel" : "subpanel") + "]").forEach(function (panel) {
+          if (navSelector === "#main-tabs") {
+            panel.hidden = panel.getAttribute("data-panel") !== target;
+          } else {
+            panel.hidden = panel.getAttribute("data-subpanel") !== target;
+          }
+        });
+      });
+    });
+    if (buttons.length) buttons[0].click();
+  }
+  wireTabs("#main-tabs", "tab");
+  wireTabs("#strategy-subtabs", "subtab");
+
   // 백엔드 src/auto_trading/backtest.py의 STRATEGY_SCHEMAS와 같은 내용을
   // 화면에서 쓰기 위해 그대로 옮겨 적었다. 전략 종류를 바꾸면 양쪽을
   // 같이 고쳐야 한다.
