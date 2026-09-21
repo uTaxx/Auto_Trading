@@ -30,7 +30,7 @@
         새로고침합니다.</p>
       <form id="form-prices">
         <label>종목 (쉼표로 구분)
-          <input type="text" id="prices-symbols" value="SPY, QQQ" autocomplete="off" spellcheck="false">
+          <input type="text" id="prices-symbols" placeholder="예: SPY, QQQ" autocomplete="off" spellcheck="false">
         </label>
         <label class="row">
           <input type="checkbox" id="prices-full-refresh">
@@ -77,8 +77,8 @@
           <code>02_백테스트결과/&lt;종목&gt;/</code>에, 이번 비교 전체를 담은 엑셀을
           <code>02_백테스트결과/종목비교결과/</code>에 올립니다. 계산이 끝나면
           이 화면이 자동으로 확인해서 알려주고, 비교 결과 탭도 자동으로
-          새로고침합니다. '유사 과거 불러오기'를 누르면 DATA 수집 탭에서
-          이미 찾아 둔 유사 구간으로 조회기간을 바로 채울 수 있습니다.</p>
+          새로고침합니다. '유사 과거 불러오기'를 누르면 이미 수집해 둔
+          종목의 유사 구간을 찾아 조회기간을 바로 채웁니다.</p>
 
         <form id="form-backtest">
           <div class="grid-2">
@@ -86,7 +86,7 @@
               <input type="number" id="bt-capital" value="10000000" min="1" required>
             </label>
             <label>종목 (쉼표로 구분, 이미 수집한 종목만)
-              <input type="text" id="bt-symbols" value="SPY, QQQ" required autocomplete="off" spellcheck="false">
+              <input type="text" id="bt-symbols" placeholder="예: SPY, QQQ" required autocomplete="off" spellcheck="false">
             </label>
           </div>
           <div class="row">
@@ -142,17 +142,22 @@
           매수 방식마다 익절선·손절선 후보도 따로 넣을 수 있습니다(방식마다
           끝에 있는 칸입니다). 비워 두면 그 조건 없이 계산합니다. 조합이
           200개를 넘으면 계산을 거부합니다. 계산이 끝나면 결과는 비교 결과
-          탭에서 그대로 조회됩니다. '유사 과거 불러오기'를 누르면 DATA
-          수집 탭에서 이미 찾아 둔 유사 구간으로 조회기간을 바로 채울 수
-          있습니다.</p>
+          탭에서 그대로 조회됩니다. '유사 과거 불러오기'를 누르면 이미
+          수집해 둔 종목의 유사 구간을 찾아 조회기간을 바로 채웁니다.</p>
 
         <form id="form-optimize">
+          <div id="opt-prev-picker" class="similar-picker">
+            <label>이전에 실행한 최적 조건 찾기 불러오기
+              <select id="opt-load-prev"><option value="">기록을 불러오는 중입니다...</option></select>
+            </label>
+            <p class="hint" id="opt-prev-hint"></p>
+          </div>
           <div class="grid-2">
             <label>총자본(원)
               <input type="number" id="opt-capital" value="10000000" min="1" required>
             </label>
             <label>종목 (하나, 이미 수집한 종목만)
-              <input type="text" id="opt-symbol" value="SPY" required autocomplete="off" spellcheck="false">
+              <input type="text" id="opt-symbol" placeholder="예: SPY" required autocomplete="off" spellcheck="false">
             </label>
           </div>
           <div class="row">

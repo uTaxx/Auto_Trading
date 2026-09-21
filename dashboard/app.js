@@ -299,23 +299,43 @@
 
   // 달러/원화 전환 그래프에 쓸 환율(KRW=X)은 update-prices.yml이 다른
   // 종목과 같은 방식으로 같이 받아 둔다. 사람이 고른 종목이 아니라서
-  // 목록 표에는 안 보여주고, file_id만 따로 기억해 뒀다가 그래프를
-  // 그릴 때 쓴다.
+  // 목록 표에는 안 보여준다.
   var FX_SYMBOL = "KRW=X";
-  var fxFileId = null;
 
-  refreshPricesListBtn.addEventListener("click", function () {
-    setStatus(pricesListStatus, "", "목록을 불러오는 중입니다...");
-    priceDetailEl.innerHTML = "";
-    fetch(URLS.listPrices)
+  // 종목별 file_id를 기억해 둔다(2026-09-21에 fxFileId 하나만 있던 것을
+  // 일반화했다). 전에는 '목록 새로고침'을 먼저 눌러야만 채워졌고, 그러면
+  // 원화 전환 버튼과 유사 과거 불러오기가 그 버튼을 먼저 누르지 않으면
+  // 못 쓰는 구조였다. 필요한 시점에 아직 못 찾은 종목이면 그때 목록을
+  // 직접 다시 받아 온다.
+  var priceFileIdBySymbol = {};
+
+  function fetchPriceList() {
+    return fetch(URLS.listPrices)
       .then(function (res) {
         if (!res.ok) throw new Error("응답 코드 " + res.status);
         return res.json();
       })
       .then(function (allRows) {
+        (allRows || []).forEach(function (r) { priceFileIdBySymbol[r.symbol] = r.file_id || null; });
+        return allRows || [];
+      });
+  }
+
+  // 이미 목록을 한 번이라도 받아서 이 종목이 있는지 없는지 아는 상태면
+  // 그 값을 그대로 쓰고, 모르면 목록을 새로 받아 온다.
+  function fetchPriceFileId(symbol) {
+    if (Object.prototype.hasOwnProperty.call(priceFileIdBySymbol, symbol)) {
+      return Promise.resolve(priceFileIdBySymbol[symbol]);
+    }
+    return fetchPriceList().then(function () { return priceFileIdBySymbol[symbol] || null; });
+  }
+
+  refreshPricesListBtn.addEventListener("click", function () {
+    setStatus(pricesListStatus, "", "목록을 불러오는 중입니다...");
+    priceDetailEl.innerHTML = "";
+    fetchPriceList()
+      .then(function (allRows) {
         pricesTableBody.innerHTML = "";
-        var fxRow = allRows.filter(function (r) { return r.symbol === FX_SYMBOL; })[0];
-        fxFileId = fxRow && fxRow.file_id ? fxRow.file_id : null;
         var rows = allRows.filter(function (r) { return r.symbol !== FX_SYMBOL; });
         if (!rows || rows.length === 0) {
           setStatus(pricesListStatus, "ok", "아직 수집한 종목이 없습니다.");
@@ -404,9 +424,16 @@
     return result;
   }
 
-  function buildPriceChart(rows, fxRows, symbol) {
-    var hasFx = fxRows.length > 0;
+  // 원화 버튼을 눌러도 반응이 없다는 지적을 받았다(2026-09-21). 원인은
+  // 환율(KRW=X)을 아직 한 번도 못 받아 온 상태에서는 버튼을 disabled로
+  // 막아 둔 것이었다. 누가 봐도 "눌렀는데 반응이 없다"로 보인다. 그때도
+  // 버튼은 항상 눌리게 하고, 누른 시점에 환율을 직접 받아와서 있으면
+  // 보여주고 없으면 그 이유를 화면에 글로 적는다.
+  function buildPriceChart(rows, symbol) {
     var currency = "usd";
+    var fxState = "idle"; // idle | loading | loaded | error
+    var fxAligned = null;
+    var fxErrorMessage = "";
 
     var wrap = document.createElement("div");
 
@@ -418,33 +445,71 @@
     var krwBtn = document.createElement("button");
     krwBtn.type = "button";
     krwBtn.textContent = "원화(KRW)";
-    if (!hasFx) {
-      krwBtn.disabled = true;
-      krwBtn.title = "환율 자료가 아직 없습니다";
-    }
     toggle.appendChild(usdBtn);
     toggle.appendChild(krwBtn);
     wrap.appendChild(toggle);
 
+    var fxNote = document.createElement("p");
+    fxNote.className = "hint";
+    wrap.appendChild(fxNote);
+
     var chartHost = document.createElement("div");
     wrap.appendChild(chartHost);
-
-    var fxAligned = hasFx ? alignFxToRows(rows, fxRows) : null;
 
     function render() {
       usdBtn.setAttribute("aria-pressed", currency === "usd" ? "true" : "false");
       krwBtn.setAttribute("aria-pressed", currency === "krw" ? "true" : "false");
       chartHost.innerHTML = "";
       chartHost.appendChild(drawPriceLineChart(rows, currency === "krw" ? fxAligned : null, symbol, currency));
+      if (currency !== "krw") {
+        fxNote.textContent = "";
+      } else if (fxState === "loading") {
+        fxNote.textContent = "환율을 불러오는 중입니다...";
+      } else if (fxState === "error") {
+        fxNote.textContent = fxErrorMessage;
+      } else {
+        fxNote.textContent = "";
+      }
     }
-    usdBtn.addEventListener("click", function () { currency = "usd"; render(); });
-    krwBtn.addEventListener("click", function () {
-      if (!hasFx) return;
-      currency = "krw";
+
+    usdBtn.addEventListener("click", function () {
+      currency = "usd";
       render();
     });
-    render();
 
+    krwBtn.addEventListener("click", function () {
+      currency = "krw";
+      if (fxState === "loaded" || fxState === "loading") {
+        render();
+        return;
+      }
+      fxState = "loading";
+      render();
+      fetchPriceFileId(FX_SYMBOL)
+        .then(function (fileId) {
+          if (!fileId) {
+            throw new Error("환율 자료가 아직 없습니다. 시세 수집을 한 번 더 실행하면 그때부터 원화로도 볼 수 있습니다.");
+          }
+          return fetch(URLS.getPrice + "?id=" + encodeURIComponent(fileId)).then(function (res) {
+            if (!res.ok) throw new Error("응답 코드 " + res.status);
+            return res.text();
+          });
+        })
+        .then(function (text) {
+          var fxRows = parsePriceRows(text);
+          if (fxRows.length === 0) throw new Error("환율 자료를 받았지만 내용이 비어 있습니다.");
+          fxAligned = alignFxToRows(rows, fxRows);
+          fxState = "loaded";
+          render();
+        })
+        .catch(function (err) {
+          fxState = "error";
+          fxErrorMessage = err.message;
+          render();
+        });
+    });
+
+    render();
     return wrap;
   }
 
@@ -611,6 +676,38 @@
     });
   }
 
+  function computeSimilarMatchesFromRows(rows) {
+    var bySymbol = {};
+    SIMILAR_WINDOWS.forEach(function (w) {
+      var matches = findSimilarPastRanked(rows, w.days, 3);
+      if (matches.length > 0) bySymbol[w.days] = matches;
+    });
+    return bySymbol;
+  }
+
+  // 종목의 유사 구간을 필요할 때 바로 계산한다(2026-09-21에 추가). 전에는
+  // DATA 수집 탭에서 '내용 보기'를 먼저 눌러야만 SIMILAR_MATCHES_BY_SYMBOL가
+  // 채워져서, 전략 비교·최적 조건 찾기의 '유사 과거 불러오기'가 그 순서를
+  // 강제했다. 이미 계산해 둔 값이 있으면 그대로 쓰고, 없으면 시세를 직접
+  // 받아서 그 자리에서 계산한다.
+  function ensureSimilarMatches(symbol) {
+    if (SIMILAR_MATCHES_BY_SYMBOL[symbol]) return Promise.resolve(SIMILAR_MATCHES_BY_SYMBOL[symbol]);
+    return fetchPriceFileId(symbol)
+      .then(function (fileId) {
+        if (!fileId) throw new Error(symbol + "은(는) 아직 수집한 시세가 없습니다. 먼저 시세 수집을 하세요.");
+        return fetch(URLS.getPrice + "?id=" + encodeURIComponent(fileId)).then(function (res) {
+          if (!res.ok) throw new Error("응답 코드 " + res.status);
+          return res.text();
+        });
+      })
+      .then(function (text) {
+        var rows = parsePriceRows(text);
+        var bySymbol = computeSimilarMatchesFromRows(rows);
+        SIMILAR_MATCHES_BY_SYMBOL[symbol] = bySymbol;
+        return bySymbol;
+      });
+  }
+
   var ANALOG_NOW_COLOR = "#b5502e";
   var ANALOG_PROJECTED_COLOR = "#9b968a"; // 예상선(점선)은 순위와 상관없이 전부 이 회색을 쓴다
   var ANALOG_RANK_COLORS = ["#4a6fa5", "#8a5a9e", "#3d8f8a"]; // 1·2·3순위 과거 구간 색
@@ -762,21 +859,13 @@
   function loadPriceDetail(symbol, fileId) {
     priceDetailEl.innerHTML = "";
     setStatus(pricesListStatus, "", symbol + " 내용을 불러오는 중입니다...");
-    var priceFetch = fetch(URLS.getPrice + "?id=" + encodeURIComponent(fileId)).then(function (res) {
-      if (!res.ok) throw new Error("응답 코드 " + res.status);
-      return res.text();
-    });
-    // 환율을 못 받아도 종목 시세 표시는 막지 않는다. 그때는 원화 버튼만 비활성화한다.
-    var fxFetch = fxFileId
-      ? fetch(URLS.getPrice + "?id=" + encodeURIComponent(fxFileId))
-          .then(function (res) { return res.ok ? res.text() : null; })
-          .catch(function () { return null; })
-      : Promise.resolve(null);
-
-    Promise.all([priceFetch, fxFetch])
-      .then(function (results) {
-        var rows = parsePriceRows(results[0]);
-        var fxRows = results[1] ? parsePriceRows(results[1]) : [];
+    fetch(URLS.getPrice + "?id=" + encodeURIComponent(fileId))
+      .then(function (res) {
+        if (!res.ok) throw new Error("응답 코드 " + res.status);
+        return res.text();
+      })
+      .then(function (text) {
+        var rows = parsePriceRows(text);
         var summary = summarizeRows(rows);
         priceDetailEl.innerHTML = "";
 
@@ -794,7 +883,7 @@
           ", 마지막 종가 " + summary.lastClose;
         priceDetailEl.appendChild(p);
 
-        priceDetailEl.appendChild(buildPriceChart(rows, fxRows, symbol));
+        priceDetailEl.appendChild(buildPriceChart(rows, symbol));
 
         var simIntro = document.createElement("p");
         simIntro.className = "desc";
@@ -806,18 +895,18 @@
           "그대로 옮겨 본 참고용일 뿐, 실제로 일어난 일이 아닙니다.";
         priceDetailEl.appendChild(simIntro);
 
-        SIMILAR_MATCHES_BY_SYMBOL[symbol] = {};
+        var similarBySymbol = computeSimilarMatchesFromRows(rows);
+        SIMILAR_MATCHES_BY_SYMBOL[symbol] = similarBySymbol;
 
         SIMILAR_WINDOWS.forEach(function (w) {
-          var matches = findSimilarPastRanked(rows, w.days, 3);
-          if (matches.length === 0) {
+          var matches = similarBySymbol[w.days];
+          if (!matches) {
             var noneLine = document.createElement("p");
             noneLine.className = "desc";
             noneLine.textContent = w.label + "(" + w.days + "거래일): 비교할 과거 데이터가 부족합니다.";
             priceDetailEl.appendChild(noneLine);
             return;
           }
-          SIMILAR_MATCHES_BY_SYMBOL[symbol][w.days] = matches;
 
           var box = document.createElement("div");
           box.className = "similar-box";
@@ -1693,12 +1782,138 @@
       });
   });
 
+  // ── 이전 최적 조건 찾기 불러오기 (2026-09-21에 추가) ────
+  // 매번 후보값을 처음부터 다시 채우는 게 번거롭다는 지적을 받았다.
+  // find_best_strategy.py가 결과 파일에 "검색조건"(요청 그대로),
+  // "자본금", "조회기간", "종목"을 같이 남겨 두므로 새 서버 작업 없이
+  // 그 파일만 읽으면 요청값을 그대로 되살릴 수 있다. 화면을 열면 가장
+  // 최근 실행값을 기본값으로 자동으로 채우고, 드롭박스에서 다른 과거
+  // 실행을 고르면 그 값으로 다시 채울 수 있다.
+  var optPrevSelect = document.getElementById("opt-load-prev");
+  var optPrevHint = document.getElementById("opt-prev-hint");
+  var optPrevResultsCache = {}; // file id -> 이미 받은 결과 내용(다시 안 받는다)
+
+  function fillListInput(input, list) {
+    input.value = (list || []).join(", ");
+  }
+  // 익절선·손절선 후보는 비율(0.1)로 저장돼 있고 입력칸에는 %(10)로
+  // 보여준다. 요청을 보낼 때 하는 변환(parsePercentListText)의 반대다.
+  function fillPercentListInput(input, list) {
+    input.value = (list || []).map(function (v) { return v * 100; }).join(", ");
+  }
+
+  function applyOptimizeRequestToForm(data) {
+    var symbols = data["종목"] || [];
+    if (symbols[0]) document.getElementById("opt-symbol").value = symbols[0];
+    if (data["자본금"] !== undefined && data["자본금"] !== null) {
+      document.getElementById("opt-capital").value = data["자본금"];
+    }
+    var period = data["조회기간"] || {};
+    if (period["시작"]) document.getElementById("opt-start").value = period["시작"];
+    if (period["종료"]) document.getElementById("opt-end").value = period["종료"];
+
+    var search = data["검색조건"] || {};
+    Object.keys(STRATEGY_SEARCH_SCHEMAS).forEach(function (key) {
+      var block = optBlocks[key];
+      var schema = STRATEGY_SEARCH_SCHEMAS[key];
+      var values = search[key];
+      block.checkbox.checked = Boolean(values);
+      block.paramsHost.style.display = values ? "" : "none";
+      if (!values) return;
+      schema.params.forEach(function (param) {
+        var field = block.fields[param.name];
+        if (!field) return;
+        var list = values[param.name];
+        if (param.type === "choice_multi") {
+          field.checkboxes.forEach(function (c) { c.checked = list ? list.indexOf(c.value) !== -1 : false; });
+        } else if (param.type === "percent_optional") {
+          fillPercentListInput(field.input, list);
+        } else {
+          fillListInput(field.input, list);
+        }
+      });
+    });
+    updateComboCount();
+  }
+
+  // 파일 이름 "최적화_20260921_140501_SPY.json"에서 종목만 뽑아 드롭박스
+  // 문구에 쓴다. 내용을 다 받지 않아도 목록을 채울 수 있어서 가볍다.
+  function symbolFromOptimizeFilename(name) {
+    var m = /^최적화_\d{8}_\d{6}_(.+)\.json$/.exec(name || "");
+    return m ? m[1] : name;
+  }
+
+  function loadOptimizeResultById(id) {
+    if (optPrevResultsCache[id]) return Promise.resolve(optPrevResultsCache[id]);
+    return fetch(URLS.getResult + "?id=" + encodeURIComponent(id))
+      .then(function (res) {
+        if (!res.ok) throw new Error("응답 코드 " + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        optPrevResultsCache[id] = data;
+        return data;
+      });
+  }
+
+  fetch(URLS.listResults)
+    .then(function (res) { return res.ok ? res.json() : []; })
+    .catch(function () { return []; })
+    .then(function (files) {
+      return (files || []).filter(function (f) { return f.name && f.name.indexOf("최적화_") === 0; });
+    })
+    .then(function (files) {
+      optPrevSelect.innerHTML = "";
+      if (files.length === 0) {
+        optPrevSelect.innerHTML = "<option value=''>지난 실행 기록이 없습니다(아래 기본값을 그대로 둡니다)</option>";
+        return;
+      }
+      var placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = "직접 고르기(지금은 가장 최근 값이 채워져 있습니다)";
+      optPrevSelect.appendChild(placeholder);
+      files.forEach(function (f) {
+        var opt = document.createElement("option");
+        opt.value = f.id;
+        opt.textContent = symbolFromOptimizeFilename(f.name) + " (" + fmtDateTimeKST(f.modifiedTime) + ")";
+        optPrevSelect.appendChild(opt);
+      });
+
+      var latest = files[0];
+      loadOptimizeResultById(latest.id)
+        .then(function (data) {
+          applyOptimizeRequestToForm(data);
+          optPrevSelect.value = latest.id;
+          optPrevHint.textContent =
+            "가장 최근 실행값(" + symbolFromOptimizeFilename(latest.name) + ", " +
+            fmtDateTimeKST(latest.modifiedTime) + ")을 기본값으로 채웠습니다.";
+        })
+        .catch(function () {
+          // 기본값을 자동으로 못 채워도 화면 전체를 막지 않는다. 처음
+          // 미리 채워 둔 시작값이 그대로 남는다.
+        });
+    });
+
+  optPrevSelect.addEventListener("change", function () {
+    var id = optPrevSelect.value;
+    if (!id) return;
+    optPrevHint.textContent = "불러오는 중입니다...";
+    loadOptimizeResultById(id)
+      .then(function (data) {
+        applyOptimizeRequestToForm(data);
+        optPrevHint.textContent = "선택한 실행값을 불러왔습니다.";
+      })
+      .catch(function (err) {
+        optPrevHint.textContent = "불러오지 못했습니다: " + err.message;
+      });
+  });
+
   // ── 유사 과거 불러오기 (전략 비교 · 최적 조건 찾기 공용) ──
-  // DATA 수집 탭에서 '내용 보기'로 이미 찾아 둔 유사 구간(1순위)을
-  // 조회 시작일·종료일에 그대로 채워 넣는다. 아직 그 종목을 DATA
-  // 수집 탭에서 열어 보지 않았으면 채울 값이 없으니, 먼저 열어 보라고
-  // 안내한다(다시 계산하지 않는다. 같은 계산을 두 번 하지 않으려는
-  // 것이다).
+  // 유사 구간(1순위)을 조회 시작일·종료일에 그대로 채워 넣는다. 전에는
+  // DATA 수집 탭에서 '내용 보기'를 먼저 눌러야만 계산돼 있었는데,
+  // 그 순서를 강제하는 게 불편하다는 지적을 받았다(2026-09-21). 이미
+  // 계산해 둔 값이 있으면 그대로 쓰고, 없으면 이 자리에서 바로 시세를
+  // 받아 계산한다(ensureSimilarMatches).
   //
   // 이렇게 채운 기간으로 비교·최적화를 실행하고 결과를 보면, 그 구간이
   // 끝난 뒤 실제로 어떻게 됐는지(과거 기록)를 같이 보여준다. 단 한 번의
@@ -1715,18 +1930,7 @@
       return document.getElementById(symbolInputId).value.split(",")[0].trim().toUpperCase();
     }
 
-    btn.addEventListener("click", function () {
-      var symbol = currentSymbol();
-      picker.hidden = false;
-      if (!symbol) {
-        select.innerHTML = "<option value=''>종목을 먼저 입력하세요</option>";
-        return;
-      }
-      var bySymbol = SIMILAR_MATCHES_BY_SYMBOL[symbol];
-      if (!bySymbol) {
-        select.innerHTML = "<option value=''>DATA 수집 탭에서 " + symbol + "의 '내용 보기'를 먼저 눌러야 합니다</option>";
-        return;
-      }
+    function fillOptions(bySymbol) {
       select.innerHTML = "<option value=''>기간을 고르세요</option>";
       SIMILAR_WINDOWS.forEach(function (w) {
         var matches = bySymbol[w.days];
@@ -1737,6 +1941,29 @@
         opt.textContent = w.label + "(" + w.days + "거래일, " + best.startDate + " ~ " + best.endDate + ")";
         select.appendChild(opt);
       });
+    }
+
+    btn.addEventListener("click", function () {
+      var symbol = currentSymbol();
+      picker.hidden = false;
+      if (!symbol) {
+        select.innerHTML = "<option value=''>종목을 먼저 입력하세요</option>";
+        return;
+      }
+      if (SIMILAR_MATCHES_BY_SYMBOL[symbol]) {
+        fillOptions(SIMILAR_MATCHES_BY_SYMBOL[symbol]);
+        return;
+      }
+      select.innerHTML = "<option value=''>" + symbol + " 값 움직임을 불러와 유사 구간을 찾는 중입니다...</option>";
+      ensureSimilarMatches(symbol)
+        .then(function (bySymbol) {
+          if (currentSymbol() !== symbol) return; // 그사이 종목을 바꿨으면 이 결과는 버린다
+          fillOptions(bySymbol);
+        })
+        .catch(function (err) {
+          if (currentSymbol() !== symbol) return;
+          select.innerHTML = "<option value=''>" + err.message + "</option>";
+        });
     });
 
     select.addEventListener("change", function () {
