@@ -2819,6 +2819,20 @@
       setStatus(wfStatus, "err", "학습기간·검증기간·이동 간격을 모두 입력하세요.");
       return;
     }
+    if (start && end) {
+      var spanDays = (new Date(end) - new Date(start)) / 86400000;
+      var neededDays = (inSampleYears + outSampleYears) * 365.25;
+      if (spanDays < neededDays) {
+        setStatus(
+          wfStatus,
+          "err",
+          "조회기간이 " + Math.round(spanDays) + "일이라 학습 " + inSampleYears + "년 + 검증 " +
+            outSampleYears + "년(최소 " + Math.ceil(neededDays) + "일)짜리 구간을 하나도 만들 수 없습니다. " +
+            "조회 시작일을 앞당기거나, 조회기간을 비워 전체 시세를 쓰거나, 학습·검증 기간을 줄이세요."
+        );
+        return;
+      }
+    }
 
     var total = updateWalkforwardComboCount();
     if (total === null) {
