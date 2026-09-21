@@ -198,12 +198,45 @@ def max_drawdown_pct(total_value: pd.Series) -> float:
     return round(float(drawdown.min()) * 100, 2)
 
 
+def describe_strategy(strategy: Strategy) -> dict:
+    """전략 설정을 화면 표·엑셀에 바로 쓸 수 있는 사람이 읽는 칸으로
+    편다(2026-09-21에 더함). `strategy_name`은 조합을 구분하는 원래
+    문자열(예: "적립식 매수 (amount=100000, interval_days=5)")이라
+    코드를 모르면 읽기 어렵다는 지적을 받았다. 여기서 만드는 값은
+    보여주기 전용이고, 계산에는 안 쓴다."""
+    plan = strategy.buy_plan
+    row: dict = {
+        "매수방식": STRATEGY_SCHEMAS.get(strategy.key, {}).get("label", strategy.key),
+        "매수금액": None,
+        "매수빈도": None,
+        "이동평균조건": None,
+        "등락구간": None,
+    }
+    if isinstance(plan, LumpSum):
+        row["매수금액"] = round(plan.amount)
+    elif isinstance(plan, PeriodicDCA):
+        row["매수금액"] = round(plan.amount)
+        row["매수빈도"] = plan.interval_days
+    elif isinstance(plan, MovingAverageDCA):
+        parts = []
+        if plan.below_amount is not None:
+            parts.append(f"아래 {round(plan.below_amount):,}원/{plan.below_interval_days}일")
+        if plan.above_amount is not None:
+            parts.append(f"위 {round(plan.above_amount):,}원/{plan.above_interval_days}일")
+        row["이동평균조건"] = f"{plan.ma_window}일선, " + ", ".join(parts)
+    elif isinstance(plan, ConditionalDCA):
+        row["등락구간"] = ", ".join(f"{t * 100:+.1f}%: {round(a):,}원" for t, a in plan.tiers)
+    row["익절선"] = f"{strategy.take_profit_pct * 100:.1f}%" if strategy.take_profit_pct is not None else None
+    row["손절선"] = f"{strategy.stop_loss_pct * 100:.1f}%" if strategy.stop_loss_pct is not None else None
+    return row
+
+
 def summarize_result(symbol: str, strategy: Strategy, capital: float, result: pd.DataFrame) -> dict:
     """`run_backtest` 결과 한 줄(요약)을 만든다. 화면 표와 엑셀 보고서,
     최적 조건 찾기가 전부 이 함수를 거쳐서, 숫자를 내는 방식이 한 곳에만
     있게 한다."""
     last = result.iloc[-1]
-    return {
+    row = {
         "symbol": symbol,
         "strategy_key": strategy.key,
         "strategy_name": strategy.name,
@@ -214,6 +247,8 @@ def summarize_result(symbol: str, strategy: Strategy, capital: float, result: pd
         "수익률": round(last["total_pnl"] / capital * 100, 2),
         "최대낙폭": max_drawdown_pct(result["total_value"]),
     }
+    row.update(describe_strategy(strategy))
+    return row
 
 
 #: 화면이 전략마다 어떤 입력칸을 보여 줘야 하는지 적어 둔 자리다.

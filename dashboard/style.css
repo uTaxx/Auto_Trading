@@ -205,11 +205,20 @@ button:disabled { opacity: 0.55; cursor: default; }
 
 .hint { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
 
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
   margin-top: 12px;
+}
+.table-scroll table {
+  width: max-content;
+  min-width: 100%;
 }
 th, td {
   text-align: right;

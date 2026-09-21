@@ -974,31 +974,53 @@
       });
   }
 
+  function fmtCell(v, suffix) {
+    if (v === null || v === undefined || v === "") return "-";
+    return v + (suffix || "");
+  }
+
   function renderResult(data) {
     var summary = data["요약"] || [];
     var series = data["시계열"] || {};
 
+    // 전략 이름을 코드에 가까운 문자열 하나로 보여주면 읽기 어렵다는
+    // 지적을 받아서, 매수방식·매수금액·매수빈도·이동평균조건·등락구간·
+    // 익절선·손절선을 각각 칸으로 나눴다(summarize_result의
+    // describe_strategy가 만든 값). 칸이 많아 폭이 좁은 화면에서는
+    // 가로로 스크롤하게 wrap을 둔다.
+    var wrap = document.createElement("div");
+    wrap.className = "table-scroll";
+
     var table = document.createElement("table");
     var thead = document.createElement("thead");
     thead.innerHTML =
-      "<tr><th>종목</th><th>전략</th><th>총투자금</th><th>실현손익</th><th>평가손익</th><th>합계</th><th>수익률</th><th>최대낙폭</th></tr>";
+      "<tr><th>종목</th><th>매수방식</th><th>매수금액</th><th>매수빈도</th><th>이동평균조건</th>" +
+      "<th>등락구간</th><th>익절선</th><th>손절선</th><th>총투자금</th><th>실현손익</th>" +
+      "<th>평가손익</th><th>합계</th><th>수익률</th><th>최대낙폭</th></tr>";
     table.appendChild(thead);
     var tbody = document.createElement("tbody");
     summary.forEach(function (row) {
       var tr = document.createElement("tr");
       tr.innerHTML =
         "<td>" + row.symbol + "</td>" +
-        "<td>" + row.strategy_name + "</td>" +
+        "<td>" + fmtCell(row["매수방식"]) + "</td>" +
+        "<td>" + (row["매수금액"] !== null && row["매수금액"] !== undefined ? fmtNumber(row["매수금액"]) : "-") + "</td>" +
+        "<td>" + fmtCell(row["매수빈도"], "일") + "</td>" +
+        "<td>" + fmtCell(row["이동평균조건"]) + "</td>" +
+        "<td>" + fmtCell(row["등락구간"]) + "</td>" +
+        "<td>" + fmtCell(row["익절선"]) + "</td>" +
+        "<td>" + fmtCell(row["손절선"]) + "</td>" +
         "<td>" + fmtNumber(row["총투자금"]) + "</td>" +
         "<td>" + fmtNumber(row["실현손익"]) + "</td>" +
         "<td>" + fmtNumber(row["평가손익"]) + "</td>" +
         "<td>" + fmtNumber(row["합계"]) + "</td>" +
         "<td>" + row["수익률"] + "%</td>" +
-        "<td>" + (row["최대낙폭"] !== undefined ? row["최대낙폭"] + "%" : "-") + "</td>";
+        "<td>" + fmtCell(row["최대낙폭"], "%") + "</td>";
       tbody.appendChild(tr);
     });
     table.appendChild(tbody);
-    resultView.appendChild(table);
+    wrap.appendChild(table);
+    resultView.appendChild(wrap);
 
     var chart = buildChart(series);
     if (chart) resultView.appendChild(chart);

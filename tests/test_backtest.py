@@ -11,7 +11,9 @@ from auto_trading.backtest import (
     PeriodicDCA,
     Strategy,
     build_strategy,
+    describe_strategy,
     run_backtest,
+    summarize_result,
 )
 
 
@@ -276,3 +278,50 @@ def test_상승_구간에도_매수_비중을_넣을_수_있다():
     )
     result = run_backtest(prices, capital=10_000_000, strategy=strategy)
     assert result.iloc[-1]["invested_cumulative"] == pytest.approx(150_000)
+
+
+def test_전략_설명은_매수방식별로_읽을_수_있는_칸을_만든다():
+    lump_sum = describe_strategy(Strategy(key="lump_sum", name="일회", buy_plan=LumpSum(1_000_000)))
+    assert lump_sum["매수방식"] == "일회 매수"
+    assert lump_sum["매수금액"] == 1_000_000
+    assert lump_sum["매수빈도"] is None
+
+    dca = describe_strategy(
+        Strategy(key="dca", name="적립", buy_plan=PeriodicDCA(amount=100_000, interval_days=5))
+    )
+    assert dca["매수금액"] == 100_000
+    assert dca["매수빈도"] == 5
+
+    dca_ma = describe_strategy(
+        Strategy(
+            key="dca_ma",
+            name="이평",
+            buy_plan=MovingAverageDCA(ma_window=60, below_amount=100_000, below_interval_days=1),
+            take_profit_pct=0.1,
+        )
+    )
+    assert "60일선" in dca_ma["이동평균조건"]
+    assert "아래" in dca_ma["이동평균조건"]
+    assert "위" not in dca_ma["이동평균조건"]
+    assert dca_ma["익절선"] == "10.0%"
+    assert dca_ma["손절선"] is None
+
+    drop_based = describe_strategy(
+        Strategy(
+            key="drop_based",
+            name="등락",
+            buy_plan=ConditionalDCA(tiers=[(-0.05, 120_000)], lookback_days=1, interval_days=1),
+        )
+    )
+    assert "-5.0%" in drop_based["등락구간"]
+    assert "120,000원" in drop_based["등락구간"]
+
+
+def test_요약에_전략_설명_칸이_같이_들어간다():
+    prices = _prices([100.0, 105.0, 110.0])
+    strategy = Strategy(key="dca", name="적립", buy_plan=PeriodicDCA(amount=100_000, interval_days=1))
+    result = run_backtest(prices, capital=1_000_000, strategy=strategy)
+    row = summarize_result("SPY", strategy, 1_000_000, result)
+    assert row["매수방식"] == "적립식 매수"
+    assert row["매수금액"] == 100_000
+    assert row["매수빈도"] == 1

@@ -28,6 +28,13 @@ def test_종목_보고서는_요약과_일별_시계열_두_시트를_만든다(
         "symbol": "SPY",
         "strategy_key": "lump_sum",
         "strategy_name": "일회 매수",
+        "매수방식": "일회 매수",
+        "매수금액": 1_000_000,
+        "매수빈도": None,
+        "이동평균조건": None,
+        "등락구간": None,
+        "익절선": None,
+        "손절선": None,
         "총투자금": 1_000_000,
         "실현손익": 0,
         "평가손익": 200_000,
@@ -52,11 +59,16 @@ def test_종목_보고서는_요약과_일별_시계열_두_시트를_만든다(
     summary_ws = wb["요약"]
     assert summary_ws["A1"].value == "SPY - 일회 매수 분석 결과"
     header_row = [cell.value for cell in summary_ws[6]]
-    assert header_row == ["종목", "전략", "총투자금", "실현손익", "평가손익", "합계", "수익률", "최대낙폭"]
+    assert header_row == [
+        "종목", "매수방식", "매수금액", "매수빈도", "이동평균조건", "등락구간", "익절선", "손절선",
+        "총투자금", "실현손익", "평가손익", "합계", "수익률", "최대낙폭",
+    ]
     assert summary_ws.cell(row=7, column=1).value == "SPY"
-    assert summary_ws.cell(row=7, column=7).value == 0.2  # 20% -> 0.2 (퍼센트 서식으로 표시)
-    assert summary_ws.cell(row=7, column=7).number_format == "0.00%"
-    assert summary_ws.cell(row=7, column=8).value == -0.05
+    assert summary_ws.cell(row=7, column=2).value == "일회 매수"
+    assert summary_ws.cell(row=7, column=3).value == 1_000_000
+    assert summary_ws.cell(row=7, column=13).value == 0.2  # 20% -> 0.2 (퍼센트 서식으로 표시)
+    assert summary_ws.cell(row=7, column=13).number_format == "0.00%"
+    assert summary_ws.cell(row=7, column=14).value == -0.05
 
     daily_ws = wb["일별 시계열"]
     assert [cell.value for cell in daily_ws[1]][:4] == ["거래일", "종가", "현금", "보유수량"]
@@ -67,8 +79,10 @@ def test_종목_보고서는_요약과_일별_시계열_두_시트를_만든다(
 def test_비교_보고서는_수익률_부호에_따라_글자색이_다르다():
     summary_rows = [
         {"symbol": "SPY", "strategy_key": "lump_sum", "strategy_name": "일회 매수",
+         "매수방식": "일회 매수", "매수금액": 1_000_000,
          "총투자금": 1_000_000, "실현손익": 0, "평가손익": 200_000, "합계": 200_000, "수익률": 20.0},
         {"symbol": "QQQ", "strategy_key": "lump_sum", "strategy_name": "일회 매수",
+         "매수방식": "일회 매수", "매수금액": 1_000_000,
          "총투자금": 1_000_000, "실현손익": 0, "평가손익": -50_000, "합계": -50_000, "수익률": -5.0},
     ]
 
@@ -83,8 +97,13 @@ def test_비교_보고서는_수익률_부호에_따라_글자색이_다르다()
 
     ws = wb["종목 비교"]
     assert ws["A1"].value == "종목 비교 결과 (SPY, QQQ)"
-    positive_cell = ws.cell(row=7, column=7)
-    negative_cell = ws.cell(row=8, column=7)
+    header_row = [cell.value for cell in ws[6]]
+    assert header_row == [
+        "종목", "매수방식", "매수금액", "매수빈도", "이동평균조건", "등락구간", "익절선", "손절선",
+        "총투자금", "실현손익", "평가손익", "합계", "수익률", "최대낙폭",
+    ]
+    positive_cell = ws.cell(row=7, column=13)
+    negative_cell = ws.cell(row=8, column=13)
     assert positive_cell.value == 0.2
     assert negative_cell.value == -0.05
     assert positive_cell.font.color.rgb.endswith("1B7A43")
