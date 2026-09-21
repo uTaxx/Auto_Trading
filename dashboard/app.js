@@ -6,6 +6,7 @@
     updatePrices: N8N_BASE + "/auto-trading-update-prices",
     listPrices: N8N_BASE + "/auto-trading-list-prices",
     getPrice: N8N_BASE + "/auto-trading-get-price",
+    checkRun: N8N_BASE + "/auto-trading-check-run",
     runBacktest: N8N_BASE + "/auto-trading-run-backtest",
     listResults: N8N_BASE + "/auto-trading-list-results",
     getResult: N8N_BASE + "/auto-trading-get-result",
@@ -84,10 +85,70 @@
     d.setFullYear(d.getFullYear() - years);
     return d.toISOString().slice(0, 10);
   }
+  function notifyIfPermitted(title, body) {
+    try {
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification(title, { body: body });
+      }
+    } catch (e) {
+      // 알림을 못 띄워도 화면 문구로 이미 안내하므로 무시한다
+    }
+  }
 
   // ── 1. 시세 수집 ───────────────────────────────────────
   var pricesForm = document.getElementById("form-prices");
   var pricesStatus = document.getElementById("prices-status");
+  var priceCollectionPollTimer = null;
+
+  // 수집이 끝나도 화면에 알림이 없어서 '조회하기'를 눌러 봐야만 알 수 있었다.
+  // GitHub Actions 실행 상태를 직접 물어봐서, 끝나면 자동으로 알려준다.
+  // daily.csv 파일의 마지막 수정 시각만 보면 안 된다. 이미 최신이라 새로
+  // 받을 게 없는 날은 수정 시각이 안 바뀌는데, 그걸 "아직 안 끝났다"로
+  // 잘못 읽게 된다.
+  function pollPriceCollection(previousRunId, symbolsLabel, attempt) {
+    var maxAttempts = 60; // 10초 간격으로 최대 10분
+    fetch(URLS.checkRun + "?workflow=update-prices.yml")
+      .then(function (res) {
+        if (!res.ok) throw new Error("응답 코드 " + res.status);
+        return res.json();
+      })
+      .then(function (runs) {
+        var latest = runs && runs[0];
+        var isNewRun = latest && latest.id !== previousRunId;
+
+        if (!isNewRun || latest.status !== "completed") {
+          if (attempt >= maxAttempts) {
+            setStatus(pricesStatus, "err", "실행 확인이 오래 걸립니다. 아래 2번에서 새로고침해 보세요.");
+            priceCollectionPollTimer = null;
+            return;
+          }
+          priceCollectionPollTimer = setTimeout(function () {
+            pollPriceCollection(previousRunId, symbolsLabel, attempt + 1);
+          }, 10000);
+          return;
+        }
+
+        priceCollectionPollTimer = null;
+        if (latest.conclusion === "success") {
+          setStatus(pricesStatus, "ok", "완료됐습니다(" + symbolsLabel + "). 아래 2번에 자동으로 반영했습니다.");
+          notifyIfPermitted("시세 수집 완료", symbolsLabel + " 수집이 끝났습니다.");
+          refreshPricesListBtn.click();
+        } else {
+          setStatus(pricesStatus, "err", "수집이 실패로 끝났습니다(" + latest.conclusion + "). GitHub Actions 로그를 확인해야 합니다.");
+          notifyIfPermitted("시세 수집 실패", symbolsLabel + " 수집이 실패했습니다.");
+        }
+      })
+      .catch(function (err) {
+        if (attempt >= maxAttempts) {
+          setStatus(pricesStatus, "err", "진행 확인 중 오류가 반복됩니다: " + err.message);
+          priceCollectionPollTimer = null;
+          return;
+        }
+        priceCollectionPollTimer = setTimeout(function () {
+          pollPriceCollection(previousRunId, symbolsLabel, attempt + 1);
+        }, 10000);
+      });
+  }
 
   pricesForm.addEventListener("submit", function (event) {
     event.preventDefault();
@@ -104,15 +165,31 @@
       return;
     }
 
+    if (priceCollectionPollTimer) {
+      clearTimeout(priceCollectionPollTimer);
+      priceCollectionPollTimer = null;
+    }
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+
     setStatus(pricesStatus, "", "요청을 보내는 중입니다...");
-    fetch(URLS.updatePrices, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ symbols: symbols, full_refresh: fullRefresh }),
-    })
-      .then(function (res) {
-        if (!res.ok) throw new Error("응답 코드 " + res.status);
-        setStatus(pricesStatus, "ok", "요청을 보냈습니다. GitHub Actions에서 진행됩니다.");
+    fetch(URLS.checkRun + "?workflow=update-prices.yml")
+      .then(function (res) { return res.ok ? res.json() : []; })
+      .catch(function () { return []; })
+      .then(function (beforeRuns) {
+        var previousRunId = beforeRuns && beforeRuns[0] ? beforeRuns[0].id : null;
+        return fetch(URLS.updatePrices, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ symbols: symbols, full_refresh: fullRefresh }),
+        }).then(function (res) {
+          if (!res.ok) throw new Error("응답 코드 " + res.status);
+          setStatus(pricesStatus, "", "요청을 보냈습니다. 완료되면 자동으로 알려 드립니다...");
+          priceCollectionPollTimer = setTimeout(function () {
+            pollPriceCollection(previousRunId, symbols, 1);
+          }, 5000);
+        });
       })
       .catch(function (err) {
         setStatus(pricesStatus, "err", "요청을 보내지 못했습니다: " + err.message);
@@ -173,20 +250,74 @@
       });
   });
 
-  function parseDailyCsv(text) {
+  function parsePriceRows(text) {
     var lines = text.split(/\r?\n/).filter(function (line) { return line.trim().length > 0; });
-    if (lines.length <= 1) return { rows: 0, startDate: null, endDate: null, lastClose: null };
+    if (lines.length <= 1) return [];
     var header = lines[0].split(",");
     var dateIdx = header.indexOf("trade_date");
     var closeIdx = header.indexOf("close");
-    var first = lines[1].split(",");
-    var last = lines[lines.length - 1].split(",");
+    if (dateIdx < 0 || closeIdx < 0) return [];
+    var rows = [];
+    for (var i = 1; i < lines.length; i++) {
+      var cols = lines[i].split(",");
+      var close = parseFloat(cols[closeIdx]);
+      if (cols[dateIdx] && !isNaN(close)) rows.push({ date: cols[dateIdx], close: close });
+    }
+    rows.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+    return rows;
+  }
+
+  function summarizeRows(rows) {
+    if (rows.length === 0) return { rows: 0, startDate: null, endDate: null, lastClose: null };
     return {
-      rows: lines.length - 1,
-      startDate: dateIdx >= 0 ? first[dateIdx] : null,
-      endDate: dateIdx >= 0 ? last[dateIdx] : null,
-      lastClose: closeIdx >= 0 ? last[closeIdx] : null,
+      rows: rows.length,
+      startDate: rows[0].date,
+      endDate: rows[rows.length - 1].date,
+      lastClose: rows[rows.length - 1].close,
     };
+  }
+
+  // ── 최근 흐름과 가장 비슷했던 과거 구간 찾기 ────────────
+  // 시작일을 0%로 맞춘 누적 수익률 곡선끼리 비교한다. 곡선 모양이
+  // 비슷할수록(RMSE가 작을수록) "비슷한 구간"으로 본다. 미래를
+  // 맞히는 것이 아니라 과거에 모양이 비슷했던 때를 찾는 것뿐이다.
+  var SIMILAR_WINDOWS = [
+    { label: "최근 2주", days: 10 },
+    { label: "최근 한 달", days: 21 },
+    { label: "최근 두 달", days: 42 },
+  ];
+
+  function cumulativeReturnCurve(closes) {
+    var base = closes[0];
+    return closes.map(function (c) { return (c / base - 1) * 100; });
+  }
+
+  function curveDistance(a, b) {
+    var sum = 0;
+    for (var i = 0; i < a.length; i++) {
+      var d = a[i] - b[i];
+      sum += d * d;
+    }
+    return Math.sqrt(sum / a.length);
+  }
+
+  function findMostSimilarPast(rows, windowDays) {
+    if (rows.length < windowDays * 2) return null;
+    var recent = rows.slice(rows.length - windowDays);
+    var recentCurve = cumulativeReturnCurve(recent.map(function (r) { return r.close; }));
+
+    var searchEnd = rows.length - 2 * windowDays;
+    var best = null;
+    for (var start = 0; start <= searchEnd; start++) {
+      var candidate = rows.slice(start, start + windowDays);
+      var curve = cumulativeReturnCurve(candidate.map(function (r) { return r.close; }));
+      var dist = curveDistance(recentCurve, curve);
+      if (best === null || dist < best.dist) best = { dist: dist, rows: candidate };
+    }
+    if (best === null) return null;
+    var first = best.rows[0];
+    var last = best.rows[best.rows.length - 1];
+    return { startDate: first.date, endDate: last.date, returnPct: (last.close / first.close - 1) * 100 };
   }
 
   function loadPriceDetail(symbol, fileId) {
@@ -198,19 +329,44 @@
         return res.text();
       })
       .then(function (text) {
-        var summary = parseDailyCsv(text);
+        var rows = parsePriceRows(text);
+        var summary = summarizeRows(rows);
+        priceDetailEl.innerHTML = "";
+
         var p = document.createElement("p");
         p.className = "desc";
         if (summary.rows === 0) {
           p.textContent = symbol + ": 파일은 있지만 거래일 자료가 없습니다.";
-        } else {
-          p.textContent =
-            symbol + ": 거래일 " + summary.rows + "개, " +
-            (summary.startDate || "?") + " ~ " + (summary.endDate || "?") +
-            (summary.lastClose ? ", 마지막 종가 " + summary.lastClose : "");
+          priceDetailEl.appendChild(p);
+          setStatus(pricesListStatus, "ok", symbol + " 내용을 불러왔습니다.");
+          return;
         }
-        priceDetailEl.innerHTML = "";
+        p.textContent =
+          symbol + ": 거래일 " + summary.rows + "개, " +
+          summary.startDate + " ~ " + summary.endDate +
+          ", 마지막 종가 " + summary.lastClose;
         priceDetailEl.appendChild(p);
+
+        var simIntro = document.createElement("p");
+        simIntro.className = "desc";
+        simIntro.textContent = "값이 움직인 모양이 최근 흐름과 가장 비슷했던 과거 구간입니다. 앞으로 이렇게 된다는 뜻은 아닙니다.";
+        priceDetailEl.appendChild(simIntro);
+
+        SIMILAR_WINDOWS.forEach(function (w) {
+          var line = document.createElement("p");
+          line.className = "desc";
+          var match = findMostSimilarPast(rows, w.days);
+          if (!match) {
+            line.textContent = w.label + "(" + w.days + "거래일): 비교할 과거 데이터가 부족합니다.";
+          } else {
+            line.textContent =
+              w.label + "(" + w.days + "거래일)와 가장 비슷했던 구간: " +
+              match.startDate + " ~ " + match.endDate +
+              " (그 구간 수익률 " + match.returnPct.toFixed(1) + "%)";
+          }
+          priceDetailEl.appendChild(line);
+        });
+
         setStatus(pricesListStatus, "ok", symbol + " 내용을 불러왔습니다.");
       })
       .catch(function (err) {

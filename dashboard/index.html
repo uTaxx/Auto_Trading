@@ -18,7 +18,8 @@
     <h2>1. 시세 수집</h2>
     <p class="desc">종목을 입력하고 누르면 야후에서 일봉을 받아 구글 드라이브
       <code>01_시세원본/&lt;종목&gt;/daily.csv</code>에 저장합니다. 실제 처리는
-      GitHub Actions에서 진행되며 몇 분 걸릴 수 있습니다.</p>
+      GitHub Actions에서 진행되며 몇 분 걸릴 수 있습니다. 완료되면 이 화면이
+      자동으로 확인해서 알려주고, 아래 2번 표도 자동으로 새로고침합니다.</p>
     <form id="form-prices">
       <label>종목 (쉼표로 구분)
         <input type="text" id="prices-symbols" value="SPY, QQQ" autocomplete="off" spellcheck="false">
@@ -36,7 +37,9 @@
     <h2>2. 수집 결과 조회</h2>
     <p class="desc">종목별로 구글 드라이브에 시세가 실제로 저장됐는지, 언제
       마지막으로 저장됐는지 확인합니다. 시세 수집 요청 직후에는 아직 진행
-      중일 수 있으니 잠시 뒤 새로고침하세요.</p>
+      중일 수 있으니 잠시 뒤 새로고침하세요. '내용 보기'를 누르면 최근
+      2주·한 달·두 달의 값 움직임과 가장 비슷했던 과거 구간도 같이
+      보여줍니다.</p>
     <button type="button" id="refresh-prices-list">목록 새로고침</button>
     <div class="status" id="prices-list-status" role="status" aria-live="polite"></div>
     <table id="prices-table">
