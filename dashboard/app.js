@@ -86,7 +86,7 @@
   // 내용을 화면에서 쓰기 위해 그대로 옮겨 적었다. 후보값 후보를 하나씩
   // 넣지 않아도 되지만, 그 후보값 목록 자체는 화면에 미리 채워져 있고
   // 사람이 바꿀 수 있다. 등락률 기준 비중 조절 매수는 여기서는 구간을
-  // 하나로 단순화한다(여러 구간은 3번 전략 비교에서 직접 설정한다).
+  // 하나로 단순화한다(여러 구간은 전략 비교 탭에서 직접 설정한다).
   //
   // 익절·손절 후보는 매수 방식마다 따로 받는다(2026-09-21에 검색 전체에
   // 공통으로 걸던 값에서 바꿨다. 매수 방식마다 어울리는 익절·손절 폭이
@@ -275,7 +275,7 @@
           priceCollectionPollTimer = setTimeout(function () {
             pollWorkflowRun("update-prices.yml", pricesStatus, previousRunId, 1, setPriceCollectionPollTimer, function (latest) {
               if (latest.conclusion === "success") {
-                setStatus(pricesStatus, "ok", "완료됐습니다(" + symbols + "). 아래 2번에 자동으로 반영했습니다.");
+                setStatus(pricesStatus, "ok", "완료됐습니다(" + symbols + "). 아래 수집 결과 조회에 자동으로 반영했습니다.");
                 notifyIfPermitted("시세 수집 완료", symbols + " 수집이 끝났습니다.");
                 refreshPricesListBtn.click();
               } else {
@@ -603,6 +603,10 @@
         followReturnPct: followEnd ? (followEnd.close / last.close - 1) * 100 : null,
         matchCurveFull: matchCurveFull,
         recentCurveForChart: recentCurveForChart,
+        // 후보가 총 몇 개 중에서 이 순위였는지. 단 한 번의 사례를 마치
+        // 통계처럼 부풀리지 않으려고, "유사 과거 불러오기"로 결과를 볼 때
+        // 이 값을 같이 보여준다.
+        totalCandidates: candidates.length,
       };
     });
   }
@@ -1167,7 +1171,7 @@
           backtestPollTimer = setTimeout(function () {
             pollWorkflowRun("run-backtest.yml", btStatus, previousRunId, 1, setBacktestPollTimer, function (latest) {
               if (latest.conclusion === "success") {
-                setStatus(btStatus, "ok", "완료됐습니다(" + symbols + "). 아래 4번에 자동으로 반영했습니다.");
+                setStatus(btStatus, "ok", "완료됐습니다(" + symbols + "). 비교 결과 탭에 자동으로 반영했습니다.");
                 notifyIfPermitted("전략 비교 완료", symbols + " 비교 계산이 끝났습니다.");
                 refreshBtn.click();
               } else {
@@ -1290,6 +1294,9 @@
 
     var chart = buildChart(series);
     if (chart) resultView.appendChild(chart);
+
+    var similarSelection = matchingSimilarSelection(data);
+    if (similarSelection) resultView.appendChild(buildSimilarFollowupNote(similarSelection));
   }
 
   var PALETTE = ["#2f6f65", "#b5502e", "#4a6fa5", "#8a5a9e", "#c98f1c", "#5a8f4a", "#a5455a", "#3d8f8a"];
@@ -1670,7 +1677,7 @@
           optimizePollTimer = setTimeout(function () {
             pollWorkflowRun("find-best-strategy.yml", optStatus, previousRunId, 1, setOptimizePollTimer, function (latest) {
               if (latest.conclusion === "success") {
-                setStatus(optStatus, "ok", "완료됐습니다(" + symbol + "). 위 4번에 자동으로 반영했습니다.");
+                setStatus(optStatus, "ok", "완료됐습니다(" + symbol + "). 비교 결과 탭에 자동으로 반영했습니다.");
                 notifyIfPermitted("최적 조건 찾기 완료", symbol + " 계산이 끝났습니다.");
                 refreshBtn.click();
               } else {
@@ -1685,4 +1692,113 @@
         setStatus(optStatus, "err", "요청을 보내지 못했습니다: " + err.message);
       });
   });
+
+  // ── 유사 과거 불러오기 (전략 비교 · 최적 조건 찾기 공용) ──
+  // DATA 수집 탭에서 '내용 보기'로 이미 찾아 둔 유사 구간(1순위)을
+  // 조회 시작일·종료일에 그대로 채워 넣는다. 아직 그 종목을 DATA
+  // 수집 탭에서 열어 보지 않았으면 채울 값이 없으니, 먼저 열어 보라고
+  // 안내한다(다시 계산하지 않는다. 같은 계산을 두 번 하지 않으려는
+  // 것이다).
+  //
+  // 이렇게 채운 기간으로 비교·최적화를 실행하고 결과를 보면, 그 구간이
+  // 끝난 뒤 실제로 어떻게 됐는지(과거 기록)를 같이 보여준다. 단 한 번의
+  // 사례라 통계라고 부를 수는 없어서, 전체 후보 중 몇 번째로 비슷했는지도
+  // 같이 적어 과장하지 않는다.
+  var lastSimilarSelection = null;
+
+  function wireSimilarLoader(buttonId, pickerId, selectId, symbolInputId, startInputId, endInputId) {
+    var btn = document.getElementById(buttonId);
+    var picker = document.getElementById(pickerId);
+    var select = document.getElementById(selectId);
+
+    function currentSymbol() {
+      return document.getElementById(symbolInputId).value.split(",")[0].trim().toUpperCase();
+    }
+
+    btn.addEventListener("click", function () {
+      var symbol = currentSymbol();
+      picker.hidden = false;
+      if (!symbol) {
+        select.innerHTML = "<option value=''>종목을 먼저 입력하세요</option>";
+        return;
+      }
+      var bySymbol = SIMILAR_MATCHES_BY_SYMBOL[symbol];
+      if (!bySymbol) {
+        select.innerHTML = "<option value=''>DATA 수집 탭에서 " + symbol + "의 '내용 보기'를 먼저 눌러야 합니다</option>";
+        return;
+      }
+      select.innerHTML = "<option value=''>기간을 고르세요</option>";
+      SIMILAR_WINDOWS.forEach(function (w) {
+        var matches = bySymbol[w.days];
+        if (!matches || matches.length === 0) return;
+        var best = matches[0];
+        var opt = document.createElement("option");
+        opt.value = String(w.days);
+        opt.textContent = w.label + "(" + w.days + "거래일, " + best.startDate + " ~ " + best.endDate + ")";
+        select.appendChild(opt);
+      });
+    });
+
+    select.addEventListener("change", function () {
+      var days = parseInt(select.value, 10);
+      if (isNaN(days)) return;
+      var symbol = currentSymbol();
+      var matches = SIMILAR_MATCHES_BY_SYMBOL[symbol] && SIMILAR_MATCHES_BY_SYMBOL[symbol][days];
+      if (!matches || matches.length === 0) return;
+      var best = matches[0];
+      document.getElementById(startInputId).value = best.startDate;
+      document.getElementById(endInputId).value = best.endDate;
+      lastSimilarSelection = { symbol: symbol, windowDays: days, match: best };
+    });
+  }
+
+  wireSimilarLoader("bt-load-similar", "bt-similar-picker", "bt-similar-select", "bt-symbols", "bt-start", "bt-end");
+  wireSimilarLoader("opt-load-similar", "opt-similar-picker", "opt-similar-select", "opt-symbol", "opt-start", "opt-end");
+
+  // 결과에 표시된 종목·조회기간이 마지막으로 "유사 과거 불러오기"로
+  // 고른 것과 정확히 같을 때만 이후 예측을 붙인다. 사람이 기간을 손으로
+  // 바꿔서 계산했으면 그 유사 구간과 더는 상관없는 결과다.
+  function matchingSimilarSelection(data) {
+    if (!lastSimilarSelection) return null;
+    var symbols = data["종목"] || [];
+    if (symbols.length !== 1 || symbols[0] !== lastSimilarSelection.symbol) return null;
+    var period = data["조회기간"] || {};
+    var m = lastSimilarSelection.match;
+    if (period["시작"] !== m.startDate || period["종료"] !== m.endDate) return null;
+    return lastSimilarSelection;
+  }
+
+  function buildSimilarFollowupNote(selection) {
+    var m = selection.match;
+    var box = document.createElement("div");
+    box.className = "similar-box";
+
+    var title = document.createElement("p");
+    title.className = "desc";
+    var strong = document.createElement("strong");
+    strong.textContent = "이후 예측(과거 기록 기준)";
+    title.appendChild(strong);
+    box.appendChild(title);
+
+    var p1 = document.createElement("p");
+    p1.className = "desc";
+    p1.textContent =
+      "이 조회기간은 '유사 과거 불러오기'로 고른 " + selection.windowDays + "거래일 유사 구간 1순위입니다. " +
+      "같은 길이의 과거 후보 " + m.totalCandidates + "개 중 값 움직임 모양이 가장 비슷한 구간이었습니다.";
+    box.appendChild(p1);
+
+    var p2 = document.createElement("p");
+    p2.className = "desc";
+    if (m.followReturnPct !== null) {
+      p2.textContent =
+        "실제로 이 구간이 끝난 뒤 " + m.followDays + "거래일(" + m.endDate + " ~ " + m.followEndDate + ") 동안 " +
+        "수익률은 " + m.followReturnPct.toFixed(1) + "%였습니다. 이 값은 한 번의 사례일 뿐 여러 번 반복해서 " +
+        "확인한 통계가 아니므로, 앞으로도 이렇게 된다는 뜻은 아닙니다.";
+    } else {
+      p2.textContent = "그 뒤 구간 자료가 부족해서 실제로 어떻게 됐는지 확인할 수 없습니다.";
+    }
+    box.appendChild(p2);
+
+    return box;
+  }
 })();
