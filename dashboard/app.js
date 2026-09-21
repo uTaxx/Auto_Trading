@@ -11,6 +11,8 @@
     listResults: N8N_BASE + "/auto-trading-list-results",
     getResult: N8N_BASE + "/auto-trading-get-result",
     findBest: N8N_BASE + "/auto-trading-find-best",
+    getFile: N8N_BASE + "/auto-trading-get-file",
+    deleteResult: N8N_BASE + "/auto-trading-delete-result",
   };
 
   // ── 0. 메뉴 탭 ─────────────────────────────────────────
@@ -1281,6 +1283,17 @@
   var resultSelect = document.getElementById("result-select");
   var resultsStatus = document.getElementById("results-status");
   var resultView = document.getElementById("result-view");
+  var deleteResultBtn = document.getElementById("delete-result");
+
+  // 지금 보고 있는 결과의 file_id와, 그 결과가 만든 엑셀들의 file_id를
+  // 기억해 둔다. '지우기'가 이 둘을 한꺼번에 지운다(2026-09-21에 추가).
+  var currentResultId = null;
+  var currentResultExcelFiles = []; // [{file_id, 이름}]
+
+  function openFile(fileId, name) {
+    if (!fileId) return;
+    window.open(URLS.getFile + "?id=" + encodeURIComponent(fileId) + "&name=" + encodeURIComponent(name || "result.xlsx"), "_blank");
+  }
 
   refreshBtn.addEventListener("click", function () {
     setStatus(resultsStatus, "", "목록을 불러오는 중입니다...");
@@ -1318,6 +1331,9 @@
 
   function loadResult(id) {
     resultView.innerHTML = "";
+    deleteResultBtn.disabled = true;
+    currentResultId = null;
+    currentResultExcelFiles = [];
     setStatus(resultsStatus, "", "결과를 불러오는 중입니다...");
     fetch(URLS.getResult + "?id=" + encodeURIComponent(id))
       .then(function (res) {
@@ -1326,12 +1342,50 @@
       })
       .then(function (data) {
         setStatus(resultsStatus, "ok", "생성 시각(KST): " + (data["생성시각_KST"] || "알 수 없음"));
+        currentResultId = id;
         renderResult(data);
+        deleteResultBtn.disabled = false;
       })
       .catch(function (err) {
         setStatus(resultsStatus, "err", "결과를 불러오지 못했습니다: " + err.message);
       });
   }
+
+  deleteResultBtn.addEventListener("click", function () {
+    if (!currentResultId) return;
+    var label = resultSelect.options[resultSelect.selectedIndex]
+      ? resultSelect.options[resultSelect.selectedIndex].textContent
+      : "이 결과";
+    var fileIds = [currentResultId].concat(currentResultExcelFiles.map(function (f) { return f.file_id; }));
+    var confirmMsg =
+      label + "를 지웁니다.\n\n" +
+      "결과 파일 1개" + (currentResultExcelFiles.length ? "와 엑셀 " + currentResultExcelFiles.length + "개" : "") +
+      "가 구글 드라이브에서 함께 지워지고, 되돌릴 수 없습니다.\n계속할까요?";
+    if (!window.confirm(confirmMsg)) return;
+
+    setStatus(resultsStatus, "", "지우는 중입니다...");
+    deleteResultBtn.disabled = true;
+    fetch(URLS.deleteResult, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file_ids: fileIds }),
+    })
+      .then(function (res) {
+        if (!res.ok) throw new Error("응답 코드 " + res.status);
+        return res.json();
+      })
+      .then(function (result) {
+        setStatus(resultsStatus, "ok", "지웠습니다(" + result["성공"] + "/" + result["요청"] + "건). 목록을 새로고침합니다.");
+        resultView.innerHTML = "";
+        currentResultId = null;
+        currentResultExcelFiles = [];
+        refreshBtn.click();
+      })
+      .catch(function (err) {
+        setStatus(resultsStatus, "err", "지우지 못했습니다: " + err.message);
+        deleteResultBtn.disabled = false;
+      });
+  });
 
   function fmtCell(v, suffix) {
     if (v === null || v === undefined || v === "") return "-";
@@ -1341,6 +1395,26 @@
   function renderResult(data) {
     var summary = data["요약"] || [];
     var series = data["시계열"] || {};
+
+    // 지우기 버튼이 이 결과의 file_id와 함께 지울 엑셀 목록을 여기서
+    // 모은다. 종목·전략 조합별 엑셀(row["엑셀"])과 전체 비교 엑셀
+    // (data["비교엑셀"])이 있다(2026-09-21에 추가. find_best_strategy.py
+    // 결과에는 비교엑셀만 있고 조합별 엑셀은 없다. 조합이 너무 많아서다).
+    currentResultExcelFiles = [];
+    summary.forEach(function (row) {
+      if (row["엑셀"] && row["엑셀"].file_id) currentResultExcelFiles.push(row["엑셀"]);
+    });
+    if (data["비교엑셀"] && data["비교엑셀"].file_id) currentResultExcelFiles.push(data["비교엑셀"]);
+
+    if (data["비교엑셀"] && data["비교엑셀"].file_id) {
+      var wholeBtn = document.createElement("button");
+      wholeBtn.type = "button";
+      wholeBtn.textContent = "전체 비교 엑셀 보기";
+      wholeBtn.addEventListener("click", function () {
+        openFile(data["비교엑셀"].file_id, data["비교엑셀"]["이름"]);
+      });
+      resultView.appendChild(wholeBtn);
+    }
 
     // 전략 이름을 코드에 가까운 문자열 하나로 보여주면 읽기 어렵다는
     // 지적을 받아서, 매수방식·매수금액·매수빈도·이동평균조건·등락구간·
@@ -1355,7 +1429,7 @@
     thead.innerHTML =
       "<tr><th>종목</th><th>매수방식</th><th>매수금액</th><th>매수빈도</th><th>이동평균조건</th>" +
       "<th>등락구간</th><th>익절선</th><th>손절선</th><th>총투자금</th><th>실현손익</th>" +
-      "<th>평가손익</th><th>합계</th><th>수익률</th><th>최대낙폭</th></tr>";
+      "<th>평가손익</th><th>합계</th><th>수익률</th><th>최대낙폭</th><th>엑셀</th></tr>";
     table.appendChild(thead);
     var tbody = document.createElement("tbody");
     summary.forEach(function (row) {
@@ -1374,7 +1448,19 @@
         "<td>" + fmtNumber(row["평가손익"]) + "</td>" +
         "<td>" + fmtNumber(row["합계"]) + "</td>" +
         "<td>" + row["수익률"] + "%</td>" +
-        "<td>" + fmtCell(row["최대낙폭"], "%") + "</td>";
+        "<td>" + fmtCell(row["최대낙폭"], "%") + "</td>" +
+        "<td></td>";
+      if (row["엑셀"] && row["엑셀"].file_id) {
+        var excelBtn = document.createElement("button");
+        excelBtn.type = "button";
+        excelBtn.textContent = "보기";
+        excelBtn.addEventListener("click", function () {
+          openFile(row["엑셀"].file_id, row["엑셀"]["이름"]);
+        });
+        tr.lastElementChild.appendChild(excelBtn);
+      } else {
+        tr.lastElementChild.textContent = "-";
+      }
       tbody.appendChild(tr);
     });
     table.appendChild(tbody);

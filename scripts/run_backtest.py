@@ -133,7 +133,10 @@ def main() -> None:
                     summary_row=summary_row,
                     daily=result,
                 )
-                upload_bytes(service, symbol_folder_id, xlsx_name, _workbook_bytes(workbook), XLSX_MIMETYPE)
+                xlsx_file_id = upload_bytes(service, symbol_folder_id, xlsx_name, _workbook_bytes(workbook), XLSX_MIMETYPE)
+                # 화면의 '엑셀 보기'·'지우기'가 이 줄의 엑셀을 찾는 자리다.
+                # 요약(summary_rows)에 얹어 두면 결과 JSON에 그대로 실린다.
+                summary_row["엑셀"] = {"file_id": xlsx_file_id, "이름": xlsx_name}
 
     summary = pd.DataFrame(summary_rows)
     if summary.empty:
@@ -141,18 +144,9 @@ def main() -> None:
     print(summary.to_string(index=False))
 
     if args.upload:
-        payload = {
-            "생성시각_KST": generated_at_text,
-            "종목": symbols,
-            "전략설정": strategy_configs,
-            "자본금": args.capital,
-            "조회기간": {"시작": args.start, "종료": args.end},
-            "요약": summary_rows,
-            "시계열": series_by_key,
-        }
-        json_filename = f"비교_{now_kst.strftime('%Y%m%d_%H%M%S')}_{'-'.join(symbols)}.json"
-        upload_text(service, RESULTS_FOLDER_ID, json_filename, json.dumps(payload, ensure_ascii=False, indent=2))
-
+        # 비교 엑셀을 먼저 올려서 그 file_id를 JSON 결과에 같이 담는다
+        # (2026-09-21에 순서를 바꿨다. 전에는 JSON을 먼저 올려서 결과
+        # 화면의 '엑셀 보기'가 이 파일을 찾을 길이 없었다).
         comparison_folder_id = find_or_create_folder(service, RESULTS_FOLDER_ID, COMPARISON_SUBFOLDER)
         symbols_slug = "-".join(symbols)
         comparison_xlsx_name = f"{run_date_slug}_{symbols_slug}_{period_slug}.xlsx"
@@ -164,9 +158,22 @@ def main() -> None:
             generated_at_kst=generated_at_text,
             summary_rows=summary_rows,
         )
-        upload_bytes(
+        comparison_file_id = upload_bytes(
             service, comparison_folder_id, comparison_xlsx_name, _workbook_bytes(comparison_workbook), XLSX_MIMETYPE
         )
+
+        payload = {
+            "생성시각_KST": generated_at_text,
+            "종목": symbols,
+            "전략설정": strategy_configs,
+            "자본금": args.capital,
+            "조회기간": {"시작": args.start, "종료": args.end},
+            "요약": summary_rows,
+            "시계열": series_by_key,
+            "비교엑셀": {"file_id": comparison_file_id, "이름": comparison_xlsx_name},
+        }
+        json_filename = f"비교_{now_kst.strftime('%Y%m%d_%H%M%S')}_{'-'.join(symbols)}.json"
+        upload_text(service, RESULTS_FOLDER_ID, json_filename, json.dumps(payload, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

@@ -120,10 +120,15 @@
       <section class="card" id="section-results">
         <h2>비교 결과</h2>
         <p class="desc">계산이 끝나면 여기서 불러올 수 있습니다. 요청 직후에는 아직
-          없을 수 있으니 잠시 뒤 새로고침하세요.</p>
+          없을 수 있으니 잠시 뒤 새로고침하세요. 표의 '엑셀 보기'는 구글
+          드라이브에 저장된 서식 있는 엑셀을 그대로 열어 줍니다(종목·전략
+          조합별 일별 매매 기록 포함). '지우기'는 지금 보고 있는 결과와
+          그 원본 엑셀 파일까지 구글 드라이브에서 함께 지웁니다. 되돌릴
+          수 없습니다.</p>
         <div class="row">
           <button type="button" id="refresh-results">결과 목록 새로고침</button>
           <select id="result-select"><option value="">결과 목록을 새로고침하세요</option></select>
+          <button type="button" id="delete-result" disabled>지우기</button>
         </div>
         <div class="status" id="results-status" role="status" aria-live="polite"></div>
         <div id="result-view"></div>

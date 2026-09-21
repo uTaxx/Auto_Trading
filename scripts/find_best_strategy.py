@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import os
 import sys
@@ -28,11 +29,14 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from auto_trading.gdrive import _build_service, upload_text
+from auto_trading.gdrive import _build_service, find_or_create_folder, upload_bytes, upload_text
 from auto_trading.optimize import MAX_COMBINATIONS, build_strategy_configs, run_search
 from auto_trading.prices_io import filter_range, load_prices
+from auto_trading.xlsx_report import build_comparison_report
 
 RESULTS_FOLDER_ID = "1W9QQnstslExQCtBvphvoCJZ-b5y9nhvt"  # 02_백테스트결과
+COMPARISON_SUBFOLDER = "종목비교결과"
+XLSX_MIMETYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 def _parse_args() -> argparse.Namespace:
@@ -83,6 +87,28 @@ def main() -> None:
 
     if args.upload:
         now_kst = datetime.now(ZoneInfo("Asia/Seoul"))
+        run_date_slug = now_kst.strftime("%Y%m%d")
+        period_slug = f"{args.start.replace('-', '')}-{args.end.replace('-', '')}"
+
+        # 계산한 조합 전부를 한 표로 담은 엑셀. 조합이 많아 일별 시계열은
+        # 안 담지만(위 '요약'과 같은 이유), 결과 화면의 '엑셀 보기'·
+        # '지우기'가 쓸 수 있게 file_id는 JSON에 같이 남긴다.
+        comparison_folder_id = find_or_create_folder(service, RESULTS_FOLDER_ID, COMPARISON_SUBFOLDER)
+        comparison_xlsx_name = f"{run_date_slug}_최적화_{symbol}_{period_slug}.xlsx"
+        comparison_workbook = build_comparison_report(
+            symbols=[symbol],
+            capital=args.capital,
+            start=args.start,
+            end=args.end,
+            generated_at_kst=now_kst.strftime("%Y-%m-%d %H:%M:%S"),
+            summary_rows=rows,
+        )
+        buffer = io.BytesIO()
+        comparison_workbook.save(buffer)
+        comparison_file_id = upload_bytes(
+            service, comparison_folder_id, comparison_xlsx_name, buffer.getvalue(), XLSX_MIMETYPE
+        )
+
         payload = {
             "생성시각_KST": now_kst.strftime("%Y-%m-%d %H:%M:%S"),
             "종목": [symbol],
@@ -91,6 +117,7 @@ def main() -> None:
             "조회기간": {"시작": args.start, "종료": args.end},
             "요약": rows,
             "시계열": {},
+            "비교엑셀": {"file_id": comparison_file_id, "이름": comparison_xlsx_name},
         }
         filename = f"최적화_{now_kst.strftime('%Y%m%d_%H%M%S')}_{symbol}.json"
         upload_text(service, RESULTS_FOLDER_ID, filename, json.dumps(payload, ensure_ascii=False, indent=2))
