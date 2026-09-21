@@ -228,6 +228,15 @@ th, td {
 th:first-child, td:first-child,
 th:nth-child(2), td:nth-child(2) { text-align: left; }
 
+.similar-box {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  margin-top: 10px;
+  background: var(--bg);
+}
+.similar-box .desc { margin: 0 0 6px; }
+
 .chart-legend {
   display: flex;
   flex-wrap: wrap;
