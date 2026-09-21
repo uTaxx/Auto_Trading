@@ -148,13 +148,13 @@ def test_일회매수는_추가_입력값이_없어도_만들어진다():
 
 
 def test_적립식_매수는_필요한_값을_안_주면_오류를_낸다():
-    with pytest.raises(ValueError, match="periods"):
+    with pytest.raises(ValueError, match="amount"):
         build_strategy({"key": "dca", "interval_days": 21}, capital=1_000_000)
 
 
 def test_이동평균_전략은_필요한_값을_안_주면_오류를_낸다():
     with pytest.raises(ValueError, match="ma_window"):
-        build_strategy({"key": "dca_ma", "periods": 12, "interval_days": 21}, capital=1_000_000)
+        build_strategy({"key": "dca_ma", "amount": 100_000, "interval_days": 21}, capital=1_000_000)
 
 
 def test_하락률_전략은_구간을_안_주면_오류를_낸다():
@@ -175,6 +175,37 @@ def test_모르는_전략_키는_오류를_낸다():
         build_strategy({"key": "no_such_strategy"}, capital=1_000_000)
 
 
-def test_적립식_매수_금액은_자본을_횟수로_나눈다():
-    strategy = build_strategy({"key": "dca", "periods": 4, "interval_days": 21}, capital=1_200_000)
-    assert strategy.buy_plan.amount == pytest.approx(300_000)
+def test_적립식_매수_금액은_입력한_값을_그대로_쓴다():
+    strategy = build_strategy({"key": "dca", "amount": 300_000, "interval_days": 21}, capital=1_200_000)
+    assert strategy.buy_plan.amount == 300_000
+
+
+def test_손절선에서_전량_매도한다():
+    closes = [100.0, 100.0, 80.0, 80.0]  # 두 번째 날 -20%
+    prices = _prices(closes)
+    strategy = Strategy(key="lump_sum", name="일회", buy_plan=LumpSum(1_000_000), stop_loss_pct=0.1)
+    result = run_backtest(prices, capital=1_000_000, strategy=strategy)
+
+    # 3번째 줄(인덱스 2)에서 -20% 도달, 손절선(-10%)을 넘어서 매도된다
+    assert result.iloc[2]["shares"] == 0.0
+    assert result.iloc[2]["realized_pnl"] < 0
+
+
+def test_손절선을_안_주면_안_판다():
+    closes = [100.0, 100.0, 50.0]  # -50%까지 떨어져도
+    prices = _prices(closes)
+    strategy = Strategy(key="lump_sum", name="일회", buy_plan=LumpSum(1_000_000))
+    result = run_backtest(prices, capital=1_000_000, strategy=strategy)
+    assert result.iloc[-1]["shares"] > 0.0
+
+
+def test_상승_구간에도_매수_비중을_넣을_수_있다():
+    base = [100.0] * 21
+    prices = _prices(base + [105.0])  # +5%
+    strategy = Strategy(
+        key="drop",
+        name="등락률",
+        buy_plan=ConditionalDCA(tiers=[(0.05, 150_000)], lookback_days=21, interval_days=1),
+    )
+    result = run_backtest(prices, capital=10_000_000, strategy=strategy)
+    assert result.iloc[-1]["invested_cumulative"] == pytest.approx(150_000)

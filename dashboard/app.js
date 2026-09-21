@@ -18,18 +18,18 @@
     lump_sum: { label: "일회 매수", description: "첫날 전체 자본으로 한 번에 산다.", params: [] },
     dca: {
       label: "적립식 매수",
-      description: "자본을 정해진 횟수로 나눠 일정 간격마다 산다.",
+      description: "정해진 금액을 일정 간격마다 산다.",
       params: [
-        { name: "periods", label: "나눠 살 횟수", type: "int", suggested: 12 },
-        { name: "interval_days", label: "매수 간격(거래일)", type: "int", suggested: 21 },
+        { name: "amount", label: "회당 매수 금액(원)", type: "int", suggested: 100000 },
+        { name: "interval_days", label: "매수 간격(거래일, 1이면 매일)", type: "int", suggested: 1 },
       ],
     },
     dca_ma: {
       label: "적립식 매수 + 이동평균선 조건",
       description: "정해진 날이 와도 이동평균선 조건을 만족해야 산다.",
       params: [
-        { name: "periods", label: "나눠 살 횟수", type: "int", suggested: 12 },
-        { name: "interval_days", label: "매수 간격(거래일)", type: "int", suggested: 21 },
+        { name: "amount", label: "회당 매수 금액(원)", type: "int", suggested: 100000 },
+        { name: "interval_days", label: "매수 간격(거래일, 1이면 매일)", type: "int", suggested: 1 },
         { name: "ma_window", label: "이동평균 기간(거래일)", type: "int", suggested: 60 },
         {
           name: "buy_when",
@@ -44,12 +44,17 @@
       ],
     },
     drop_based: {
-      label: "하락률 기준 비중 조절 매수",
-      description: "최근 평균 주가 대비 등락률 구간마다 매수 금액을 다르게 정한다.",
+      label: "등락률 기준 비중 조절 매수",
+      description: "최근 평균 주가 대비 등락률 구간마다 매수 금액을 다르게 정한다. 하락 구간뿐 아니라 상승 구간도 넣을 수 있다.",
       params: [
-        { name: "interval_days", label: "판단 간격(거래일)", type: "int", suggested: 21 },
-        { name: "lookback_days", label: "등락률 기준 기간(거래일)", type: "int", suggested: 20 },
-        { name: "tiers", label: "등락률 구간별 매수 금액", type: "tiers", suggested: [[-3, 100000], [-5, 200000]] },
+        { name: "interval_days", label: "판단 간격(거래일, 1이면 매일)", type: "int", suggested: 1 },
+        { name: "lookback_days", label: "등락률 기준 기간(거래일, 1이면 전일 대비)", type: "int", suggested: 1 },
+        {
+          name: "tiers",
+          label: "등락률 구간별 매수 금액(등락률%, 금액)",
+          type: "tiers",
+          suggested: [[-5, 120000], [-10, 150000]],
+        },
       ],
     },
   };
@@ -251,7 +256,7 @@
         var t = document.createElement("input");
         t.type = "number";
         t.step = "0.1";
-        t.placeholder = "등락률 %(예: -3)";
+        t.placeholder = "등락률 %(예: -5 또는 +5)";
         t.value = threshold;
         var a = document.createElement("input");
         a.type = "number";
@@ -337,6 +342,14 @@
     tpLabel.appendChild(tpInput);
     el.appendChild(tpLabel);
 
+    var slLabel = document.createElement("label");
+    slLabel.textContent = "손실 한도(손절, %) — 비워 두면 안 씀";
+    var slInput = document.createElement("input");
+    slInput.type = "number";
+    slInput.step = "0.1";
+    slLabel.appendChild(slInput);
+    el.appendChild(slLabel);
+
     function renderParams() {
       paramsHost.innerHTML = "";
       var schema = STRATEGY_SCHEMAS[typeSelect.value];
@@ -349,7 +362,15 @@
     renderParams();
 
     strategyListEl.appendChild(el);
-    strategyBlocks.push({ id: blockId, el: el, typeSelect: typeSelect, labelInput: labelInput, tpInput: tpInput, paramsHost: paramsHost });
+    strategyBlocks.push({
+      id: blockId,
+      el: el,
+      typeSelect: typeSelect,
+      labelInput: labelInput,
+      tpInput: tpInput,
+      slInput: slInput,
+      paramsHost: paramsHost,
+    });
     addStrategyBtn.disabled = strategyBlocks.length >= MAX_STRATEGIES;
   }
 
@@ -396,6 +417,9 @@
 
     var tp = parseFloat(block.tpInput.value);
     if (!isNaN(tp)) config.take_profit_pct = tp / 100;
+
+    var sl = parseFloat(block.slInput.value);
+    if (!isNaN(sl)) config.stop_loss_pct = sl / 100;
 
     return config;
   }
