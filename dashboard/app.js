@@ -297,6 +297,13 @@
   var pricesTableBody = document.querySelector("#prices-table tbody");
   var priceDetailEl = document.getElementById("price-detail");
 
+  // 달러/원화 전환 그래프에 쓸 환율(KRW=X)은 update-prices.yml이 다른
+  // 종목과 같은 방식으로 같이 받아 둔다. 사람이 고른 종목이 아니라서
+  // 목록 표에는 안 보여주고, file_id만 따로 기억해 뒀다가 그래프를
+  // 그릴 때 쓴다.
+  var FX_SYMBOL = "KRW=X";
+  var fxFileId = null;
+
   refreshPricesListBtn.addEventListener("click", function () {
     setStatus(pricesListStatus, "", "목록을 불러오는 중입니다...");
     priceDetailEl.innerHTML = "";
@@ -305,8 +312,11 @@
         if (!res.ok) throw new Error("응답 코드 " + res.status);
         return res.json();
       })
-      .then(function (rows) {
+      .then(function (allRows) {
         pricesTableBody.innerHTML = "";
+        var fxRow = allRows.filter(function (r) { return r.symbol === FX_SYMBOL; })[0];
+        fxFileId = fxRow && fxRow.file_id ? fxRow.file_id : null;
+        var rows = allRows.filter(function (r) { return r.symbol !== FX_SYMBOL; });
         if (!rows || rows.length === 0) {
           setStatus(pricesListStatus, "ok", "아직 수집한 종목이 없습니다.");
           return;
@@ -373,6 +383,143 @@
       endDate: rows[rows.length - 1].date,
       lastClose: rows[rows.length - 1].close,
     };
+  }
+
+  // ── 종가 그래프(반응형, 달러/원화 전환) ────────────────
+  // rows와 fxRows는 둘 다 날짜 오름차순으로 정렬돼 있다(parsePriceRows가
+  // 정렬해 둔다). 환율 날짜가 종목 거래일과 정확히 안 맞을 수 있어서
+  // (증시 휴장일이 서로 다르다), 그날 이전의 가장 최근 환율을 그대로
+  // 쓴다(forward-fill). 두 배열을 한 번씩만 훑으면 되므로 O(n+m)이다.
+  function alignFxToRows(rows, fxRows) {
+    var result = [];
+    var fi = 0;
+    var lastRate = null;
+    for (var i = 0; i < rows.length; i++) {
+      while (fi < fxRows.length && fxRows[fi].date <= rows[i].date) {
+        lastRate = fxRows[fi].close;
+        fi++;
+      }
+      result.push(lastRate);
+    }
+    return result;
+  }
+
+  function buildPriceChart(rows, fxRows, symbol) {
+    var hasFx = fxRows.length > 0;
+    var currency = "usd";
+
+    var wrap = document.createElement("div");
+
+    var toggle = document.createElement("div");
+    toggle.className = "row";
+    var usdBtn = document.createElement("button");
+    usdBtn.type = "button";
+    usdBtn.textContent = "달러(USD)";
+    var krwBtn = document.createElement("button");
+    krwBtn.type = "button";
+    krwBtn.textContent = "원화(KRW)";
+    if (!hasFx) {
+      krwBtn.disabled = true;
+      krwBtn.title = "환율 자료가 아직 없습니다";
+    }
+    toggle.appendChild(usdBtn);
+    toggle.appendChild(krwBtn);
+    wrap.appendChild(toggle);
+
+    var chartHost = document.createElement("div");
+    wrap.appendChild(chartHost);
+
+    var fxAligned = hasFx ? alignFxToRows(rows, fxRows) : null;
+
+    function render() {
+      usdBtn.setAttribute("aria-pressed", currency === "usd" ? "true" : "false");
+      krwBtn.setAttribute("aria-pressed", currency === "krw" ? "true" : "false");
+      chartHost.innerHTML = "";
+      chartHost.appendChild(drawPriceLineChart(rows, currency === "krw" ? fxAligned : null, symbol, currency));
+    }
+    usdBtn.addEventListener("click", function () { currency = "usd"; render(); });
+    krwBtn.addEventListener("click", function () {
+      if (!hasFx) return;
+      currency = "krw";
+      render();
+    });
+    render();
+
+    return wrap;
+  }
+
+  function drawPriceLineChart(rows, fxAligned, symbol, currency) {
+    var width = 360, height = 160, padding = { top: 10, right: 10, bottom: 20, left: 54 };
+    var plotW = width - padding.left - padding.right;
+    var plotH = height - padding.top - padding.bottom;
+
+    var values = rows.map(function (r, i) {
+      return fxAligned && fxAligned[i] !== null ? r.close * fxAligned[i] : r.close;
+    });
+    var minV = Math.min.apply(null, values);
+    var maxV = Math.max.apply(null, values);
+    if (minV === maxV) { minV -= 1; maxV += 1; }
+
+    function xAt(i) { return padding.left + (rows.length <= 1 ? 0 : (i / (rows.length - 1)) * plotW); }
+    function yAt(v) { return padding.top + plotH - ((v - minV) / (maxV - minV)) * plotH; }
+
+    var svgNS = "http://www.w3.org/2000/svg";
+    var svg = document.createElementNS(svgNS, "svg");
+    svg.setAttribute("viewBox", "0 0 " + width + " " + height);
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", symbol + " 종가 추이(" + (currency === "krw" ? "원화" : "달러") + ")");
+
+    [0, 0.5, 1].forEach(function (t) {
+      var v = minV + (maxV - minV) * t;
+      var y = yAt(v);
+      var line = document.createElementNS(svgNS, "line");
+      line.setAttribute("x1", padding.left);
+      line.setAttribute("x2", width - padding.right);
+      line.setAttribute("y1", y);
+      line.setAttribute("y2", y);
+      line.setAttribute("stroke", "currentColor");
+      line.setAttribute("stroke-opacity", "0.15");
+      svg.appendChild(line);
+
+      var label = document.createElementNS(svgNS, "text");
+      label.setAttribute("x", padding.left - 6);
+      label.setAttribute("y", y + 4);
+      label.setAttribute("text-anchor", "end");
+      label.setAttribute("font-size", "10");
+      label.setAttribute("fill", "currentColor");
+      label.setAttribute("opacity", "0.6");
+      label.textContent = fmtNumber(v) + (currency === "krw" ? "원" : "달러");
+      svg.appendChild(label);
+    });
+
+    var xTickCount = Math.min(5, rows.length);
+    for (var ti = 0; ti < xTickCount; ti++) {
+      var idx = xTickCount <= 1 ? 0 : Math.round((ti / (xTickCount - 1)) * (rows.length - 1));
+      var xLabel = document.createElementNS(svgNS, "text");
+      xLabel.setAttribute("x", xAt(idx));
+      xLabel.setAttribute("y", height - 6);
+      xLabel.setAttribute("text-anchor", ti === 0 ? "start" : ti === xTickCount - 1 ? "end" : "middle");
+      xLabel.setAttribute("font-size", "10");
+      xLabel.setAttribute("fill", "currentColor");
+      xLabel.setAttribute("opacity", "0.6");
+      xLabel.textContent = rows[idx].date;
+      svg.appendChild(xLabel);
+    }
+
+    var d = values
+      .map(function (v, i) { return (i === 0 ? "M" : "L") + xAt(i).toFixed(1) + "," + yAt(v).toFixed(1); })
+      .join(" ");
+    var path = document.createElementNS(svgNS, "path");
+    path.setAttribute("d", d);
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", "#2f6f65");
+    path.setAttribute("stroke-width", "2");
+    svg.appendChild(path);
+
+    var wrap = document.createElement("div");
+    wrap.appendChild(svg);
+    return wrap;
   }
 
   // ── 최근 흐름과 가장 비슷했던 과거 구간 찾기 ────────────
@@ -611,13 +758,21 @@
   function loadPriceDetail(symbol, fileId) {
     priceDetailEl.innerHTML = "";
     setStatus(pricesListStatus, "", symbol + " 내용을 불러오는 중입니다...");
-    fetch(URLS.getPrice + "?id=" + encodeURIComponent(fileId))
-      .then(function (res) {
-        if (!res.ok) throw new Error("응답 코드 " + res.status);
-        return res.text();
-      })
-      .then(function (text) {
-        var rows = parsePriceRows(text);
+    var priceFetch = fetch(URLS.getPrice + "?id=" + encodeURIComponent(fileId)).then(function (res) {
+      if (!res.ok) throw new Error("응답 코드 " + res.status);
+      return res.text();
+    });
+    // 환율을 못 받아도 종목 시세 표시는 막지 않는다. 그때는 원화 버튼만 비활성화한다.
+    var fxFetch = fxFileId
+      ? fetch(URLS.getPrice + "?id=" + encodeURIComponent(fxFileId))
+          .then(function (res) { return res.ok ? res.text() : null; })
+          .catch(function () { return null; })
+      : Promise.resolve(null);
+
+    Promise.all([priceFetch, fxFetch])
+      .then(function (results) {
+        var rows = parsePriceRows(results[0]);
+        var fxRows = results[1] ? parsePriceRows(results[1]) : [];
         var summary = summarizeRows(rows);
         priceDetailEl.innerHTML = "";
 
@@ -634,6 +789,8 @@
           summary.startDate + " ~ " + summary.endDate +
           ", 마지막 종가 " + summary.lastClose;
         priceDetailEl.appendChild(p);
+
+        priceDetailEl.appendChild(buildPriceChart(rows, fxRows, symbol));
 
         var simIntro = document.createElement("p");
         simIntro.className = "desc";

@@ -163,6 +163,11 @@ button[type="submit"] {
 }
 
 button:disabled { opacity: 0.55; cursor: default; }
+button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+}
 
 .status { font-size: 13px; min-height: 18px; margin-top: 8px; }
 .status[data-state="ok"] { color: var(--ok); }

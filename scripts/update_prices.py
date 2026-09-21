@@ -4,6 +4,11 @@
 
 이미 받아 둔 것이 있으면 마지막 날짜 다음부터만 받아서 이어 붙인다.
 --full-refresh를 켜면 10년치를 처음부터 다시 받아 덮어쓴다.
+
+**요청한 종목과 같이 미국 달러/원화 환율(KRW=X)도 항상 같이 받는다**
+(2026-09-21에 더함). 화면에서 값을 원화로 환산해 보여주려면 날짜별
+환율이 있어야 한다. 새 파이프라인을 따로 만들지 않고, 종목 시세와
+같은 방식(01_시세원본/KRW=X/daily.csv)으로 야후에서 받아 쌓는다.
 """
 
 from __future__ import annotations
@@ -31,6 +36,7 @@ from auto_trading.yahoo import fetch_daily_ohlcv
 #: 안 된다). 그래서 시크릿이 아니라 코드에 상수로 둔다.
 DEFAULT_PRICES_FOLDER_ID = "17RdksSi5F3kDh8GEgnZ2nu-ytYH-YW-o"
 YEARS_OF_HISTORY = 10
+FX_SYMBOL = "KRW=X"  # 미국 달러 대비 원화. 화면의 달러/원화 전환 그래프가 쓴다.
 
 
 def _parse_args() -> argparse.Namespace:
@@ -85,6 +91,8 @@ def main() -> None:
 
     for symbol in symbols:
         _update_one(service, root_folder_id, symbol, full_refresh)
+
+    _update_one(service, root_folder_id, FX_SYMBOL, full_refresh)
 
 
 if __name__ == "__main__":
