@@ -302,35 +302,150 @@
   }
 
   // 과거 구간은 이미 지난 일이라 그 뒤에 값이 어떻게 움직였는지도 이미
-  // 알 수 있다. 그 구간 길이의 두 배 동안 이어진 수익률을 같이 보여준다
-  // (2026-09-21에 더함). 그 구간을 찾는 데 쓴 자리와 그 뒤 구간이 겹치지
-  // 않게, 두 배 구간까지 들어갈 자리가 있는 과거만 후보로 본다.
+  // 알 수 있다. 찾은 구간과 같은 길이만큼 뒤로 이어진 실제 수익률을
+  // 같이 보여준다(2026-09-21에 더함, 처음에는 두 배 길이로 잘못
+  // 만들었다가 같은 길이로 고쳤다). 그 구간을 찾는 데 쓴 자리와 그 뒤
+  // 구간이 겹치지 않게, 같은 길이만큼 더 들어갈 자리가 있는 과거만
+  // 후보로 본다.
   function findMostSimilarPast(rows, windowDays) {
-    var followDays = windowDays * 2;
-    if (rows.length < windowDays * 3) return null;
-    var recent = rows.slice(rows.length - windowDays);
-    var recentCurve = cumulativeReturnCurve(recent.map(function (r) { return r.close; }));
+    if (rows.length < windowDays * 2) return null;
+    var recentRows = rows.slice(rows.length - windowDays);
+    var recentShapeCurve = cumulativeReturnCurve(recentRows.map(function (r) { return r.close; }));
 
-    var searchEnd = rows.length - windowDays - followDays;
+    var searchEnd = rows.length - windowDays * 2;
     var best = null;
     for (var start = 0; start <= searchEnd; start++) {
       var candidate = rows.slice(start, start + windowDays);
-      var curve = cumulativeReturnCurve(candidate.map(function (r) { return r.close; }));
-      var dist = curveDistance(recentCurve, curve);
+      var shapeCurve = cumulativeReturnCurve(candidate.map(function (r) { return r.close; }));
+      var dist = curveDistance(recentShapeCurve, shapeCurve);
       if (best === null || dist < best.dist) best = { dist: dist, rows: candidate, start: start };
     }
     if (best === null) return null;
-    var first = best.rows[0];
-    var last = best.rows[best.rows.length - 1];
-    var followRows = rows.slice(best.start + windowDays, best.start + windowDays + followDays);
+
+    var matchRows = best.rows;
+    var first = matchRows[0];
+    var last = matchRows[matchRows.length - 1];
+    var followRows = rows.slice(best.start + windowDays, best.start + windowDays * 2);
+    var followEnd = followRows.length ? followRows[followRows.length - 1] : null;
+
+    // 그래프용 곡선. 과거 구간은 그 구간의 마지막 날(그래프의 경계
+    // 지점)을 0%로 맞춰서, 앞의 실제 구간과 뒤의 실제 구간을 하나로
+    // 잇는다. 지금 구간은 오늘 종가를 0%로 맞춘다. 두 곡선을 같은
+    // 방식으로 맞췄기 때문에, 과거 구간의 뒤쪽 절반을 그대로 지금
+    // 구간 뒤에 이어 붙이면 "같은 흐름이 반복된다면"을 그릴 수 있다.
+    var boundaryClose = last.close;
+    var matchCurveFull = matchRows.concat(followRows).map(function (r) {
+      return (r.close / boundaryClose - 1) * 100;
+    });
+    var todayClose = recentRows[recentRows.length - 1].close;
+    var recentCurveForChart = recentRows.map(function (r) { return (r.close / todayClose - 1) * 100; });
+
     return {
       startDate: first.date,
       endDate: last.date,
       returnPct: (last.close / first.close - 1) * 100,
-      followDays: followDays,
-      followEndDate: followRows.length ? followRows[followRows.length - 1].date : null,
-      followReturnPct: followRows.length === followDays ? (followRows[followRows.length - 1].close / last.close - 1) * 100 : null,
+      followDays: windowDays,
+      followEndDate: followEnd ? followEnd.date : null,
+      followReturnPct: followEnd ? (followEnd.close / last.close - 1) * 100 : null,
+      matchCurveFull: matchCurveFull,
+      recentCurveForChart: recentCurveForChart,
     };
+  }
+
+  var ANALOG_PAST_COLOR = "#4a6fa5";
+  var ANALOG_NOW_COLOR = "#b5502e";
+
+  function buildAnalogChart(matchCurveFull, recentCurveForChart, windowDays) {
+    var width = 360, height = 140, padding = { top: 8, right: 8, bottom: 8, left: 34 };
+    var plotW = width - padding.left - padding.right;
+    var plotH = height - padding.top - padding.bottom;
+    var totalPoints = windowDays * 2;
+    var projected = matchCurveFull.slice(windowDays);
+
+    var allValues = matchCurveFull.concat(recentCurveForChart).concat(projected).concat([0]);
+    var minV = Math.min.apply(null, allValues);
+    var maxV = Math.max.apply(null, allValues);
+    if (minV === maxV) { minV -= 1; maxV += 1; }
+
+    function xAt(i) { return padding.left + (i / (totalPoints - 1)) * plotW; }
+    function yAt(v) { return padding.top + plotH - ((v - minV) / (maxV - minV)) * plotH; }
+    function pathFor(points, startIndex) {
+      return points
+        .map(function (v, i) { return (i === 0 ? "M" : "L") + xAt(startIndex + i).toFixed(1) + "," + yAt(v).toFixed(1); })
+        .join(" ");
+    }
+
+    var svgNS = "http://www.w3.org/2000/svg";
+    var svg = document.createElementNS(svgNS, "svg");
+    svg.setAttribute("viewBox", "0 0 " + width + " " + height);
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", "과거 비슷한 구간과 지금 흐름, 예상 흐름 비교");
+
+    var zero = document.createElementNS(svgNS, "line");
+    zero.setAttribute("x1", padding.left);
+    zero.setAttribute("x2", width - padding.right);
+    zero.setAttribute("y1", yAt(0));
+    zero.setAttribute("y2", yAt(0));
+    zero.setAttribute("stroke", "currentColor");
+    zero.setAttribute("stroke-opacity", "0.15");
+    svg.appendChild(zero);
+
+    var boundaryX = xAt(windowDays - 0.5);
+    var boundary = document.createElementNS(svgNS, "line");
+    boundary.setAttribute("x1", boundaryX);
+    boundary.setAttribute("x2", boundaryX);
+    boundary.setAttribute("y1", padding.top);
+    boundary.setAttribute("y2", height - padding.bottom);
+    boundary.setAttribute("stroke", "currentColor");
+    boundary.setAttribute("stroke-opacity", "0.25");
+    boundary.setAttribute("stroke-dasharray", "2,2");
+    svg.appendChild(boundary);
+
+    var pastPath = document.createElementNS(svgNS, "path");
+    pastPath.setAttribute("d", pathFor(matchCurveFull, 0));
+    pastPath.setAttribute("fill", "none");
+    pastPath.setAttribute("stroke", ANALOG_PAST_COLOR);
+    pastPath.setAttribute("stroke-width", "2");
+    svg.appendChild(pastPath);
+
+    var recentPath = document.createElementNS(svgNS, "path");
+    recentPath.setAttribute("d", pathFor(recentCurveForChart, 0));
+    recentPath.setAttribute("fill", "none");
+    recentPath.setAttribute("stroke", ANALOG_NOW_COLOR);
+    recentPath.setAttribute("stroke-width", "2");
+    svg.appendChild(recentPath);
+
+    var projPath = document.createElementNS(svgNS, "path");
+    projPath.setAttribute("d", pathFor(projected, windowDays));
+    projPath.setAttribute("fill", "none");
+    projPath.setAttribute("stroke", ANALOG_NOW_COLOR);
+    projPath.setAttribute("stroke-width", "2");
+    projPath.setAttribute("stroke-dasharray", "4,3");
+    svg.appendChild(projPath);
+
+    var wrap = document.createElement("div");
+    wrap.appendChild(svg);
+
+    var legend = document.createElement("div");
+    legend.className = "chart-legend";
+    [
+      { color: ANALOG_PAST_COLOR, label: "과거 비슷한 구간(그 뒤 실제 흐름 포함)" },
+      { color: ANALOG_NOW_COLOR, label: "지금 흐름" },
+    ].forEach(function (item) {
+      var span = document.createElement("span");
+      var i = document.createElement("i");
+      i.style.background = item.color;
+      span.appendChild(i);
+      span.appendChild(document.createTextNode(item.label));
+      legend.appendChild(span);
+    });
+    var dashedItem = document.createElement("span");
+    dashedItem.textContent = "점선: 과거 패턴을 지금 시점에 그대로 적용해 본 예상 흐름(예측 아님)";
+    legend.appendChild(dashedItem);
+    wrap.appendChild(legend);
+
+    return wrap;
   }
 
   function loadPriceDetail(symbol, fileId) {
@@ -364,8 +479,9 @@
         simIntro.className = "desc";
         simIntro.textContent =
           "값이 움직인 모양이 최근 흐름과 가장 비슷했던 과거 구간입니다. 과거 구간이라 그 뒤에 값이 " +
-          "어떻게 움직였는지도 이미 알 수 있어서, 그 구간 길이의 두 배 동안 이어진 수익률도 같이 " +
-          "보여줍니다. 그 결과가 그대로 반복된다는 뜻은 아닙니다.";
+          "어떻게 움직였는지도 이미 알 수 있어서, 같은 길이만큼 이어진 실제 수익률과 그래프를 같이 " +
+          "보여줍니다. 그래프의 점선은 그 과거 흐름을 지금 시점에 그대로 적용해 본 것일 뿐, 예측이 " +
+          "아닙니다.";
         priceDetailEl.appendChild(simIntro);
 
         SIMILAR_WINDOWS.forEach(function (w) {
@@ -374,15 +490,17 @@
           var match = findMostSimilarPast(rows, w.days);
           if (!match) {
             line.textContent = w.label + "(" + w.days + "거래일): 비교할 과거 데이터가 부족합니다.";
-          } else {
-            line.textContent =
-              w.label + "(" + w.days + "거래일)와 가장 비슷했던 구간: " +
-              match.startDate + " ~ " + match.endDate +
-              " (그 구간 수익률 " + match.returnPct.toFixed(1) + "%). " +
-              "그 뒤 " + match.followDays + "거래일(" + match.endDate + " ~ " + match.followEndDate + ") 동안 수익률 " +
-              (match.followReturnPct !== null ? match.followReturnPct.toFixed(1) + "%" : "자료 부족");
+            priceDetailEl.appendChild(line);
+            return;
           }
+          line.textContent =
+            w.label + "(" + w.days + "거래일)와 가장 비슷했던 구간: " +
+            match.startDate + " ~ " + match.endDate +
+            " (그 구간 수익률 " + match.returnPct.toFixed(1) + "%). " +
+            "그 뒤 " + match.followDays + "거래일(" + match.endDate + " ~ " + match.followEndDate + ") 동안 수익률 " +
+            (match.followReturnPct !== null ? match.followReturnPct.toFixed(1) + "%" : "자료 부족");
           priceDetailEl.appendChild(line);
+          priceDetailEl.appendChild(buildAnalogChart(match.matchCurveFull, match.recentCurveForChart, w.days));
         });
 
         setStatus(pricesListStatus, "ok", symbol + " 내용을 불러왔습니다.");
