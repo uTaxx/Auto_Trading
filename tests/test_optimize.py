@@ -30,6 +30,27 @@ def test_적립식_매수_후보는_금액과_간격의_곱만큼_나온다():
     assert all("label" in c for c in configs)
 
 
+def test_이동평균_전략은_아래_위_후보를_따로_받는다():
+    configs = build_strategy_configs(
+        {
+            "dca_ma": {
+                "ma_window": [60],
+                "below_amount": [100_000, 200_000],
+                "below_interval_days": [1],
+            }
+        }
+    )
+    # ma_window 1개 * below_amount 2개 = 2 (above는 후보가 없어서 배수 1)
+    assert len(configs) == 2
+    assert {c["below_amount"] for c in configs} == {100_000, 200_000}
+    assert all("above_amount" not in c for c in configs)
+
+
+def test_이동평균_전략은_금액만_주고_빈도를_안_주면_오류를_낸다():
+    with pytest.raises(ValueError, match="전부 채우거나 전부 비워야"):
+        build_strategy_configs({"dca_ma": {"ma_window": [60], "below_amount": [100_000]}})
+
+
 def test_익절_손절_후보는_전략마다_따로_받고_다른_변수처럼_조합에_곱해진다():
     configs = build_strategy_configs(
         {"dca": {"amount": [100_000], "interval_days": [1, 5], "take_profit_pct": [0.1, 0.2], "stop_loss_pct": [0.05]}}

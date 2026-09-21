@@ -55,21 +55,13 @@
     },
     dca_ma: {
       label: "적립식 매수 + 이동평균선 조건",
-      description: "정해진 날이 와도 이동평균선 조건을 만족해야 산다.",
+      description: "이동평균선 아래일 때와 위일 때 매수금액·매수빈도를 각각 따로 정한다. 한쪽만 채워도 되고 둘 다 채워도 된다.",
       params: [
-        { name: "amount", label: "회당 매수 금액(원)", type: "int", suggested: 100000 },
-        { name: "interval_days", label: "매수 간격(거래일, 1이면 매일)", type: "int", suggested: 1 },
         { name: "ma_window", label: "이동평균 기간(거래일)", type: "int", suggested: 60 },
-        {
-          name: "buy_when",
-          label: "조건",
-          type: "choice",
-          options: [
-            { value: "below", label: "이동평균선 아래일 때만" },
-            { value: "above", label: "이동평균선 위일 때만" },
-          ],
-          suggested: "below",
-        },
+        { name: "below_amount", label: "이동평균선 아래일 때 매수금액(원) — 비워 두면 이 구간엔 안 삼", type: "int", optional: true, pair: "below", suggested: 100000 },
+        { name: "below_interval_days", label: "이동평균선 아래일 때 매수빈도(일수)", type: "int", optional: true, pair: "below", suggested: 1 },
+        { name: "above_amount", label: "이동평균선 위일 때 매수금액(원) — 비워 두면 이 구간엔 안 삼", type: "int", optional: true, pair: "above" },
+        { name: "above_interval_days", label: "이동평균선 위일 때 매수빈도(일수)", type: "int", optional: true, pair: "above" },
       ],
     },
     drop_based: {
@@ -101,8 +93,8 @@
   // 다를 수 있다는 지적을 받았다). 그래서 EXIT_PARAMS를 각 전략의 params
   // 끝에 붙인다.
   var EXIT_PARAMS = [
-    { name: "take_profit_pct", label: "익절선 후보(매수평균가 대비%, 쉼표로 구분) — 비워 두면 안 씀", type: "percent_optional" },
-    { name: "stop_loss_pct", label: "손절선 후보(매수평균가 대비%, 쉼표로 구분) — 비워 두면 안 씀", type: "percent_optional" },
+    { name: "take_profit_pct", label: "익절선 후보(매수평균가 대비%, 쉼표로 구분) — 비워 두면 안 씀", type: "percent_optional", optional: true },
+    { name: "stop_loss_pct", label: "손절선 후보(매수평균가 대비%, 쉼표로 구분) — 비워 두면 안 씀", type: "percent_optional", optional: true },
   ];
   var STRATEGY_SEARCH_SCHEMAS = {
     lump_sum: { label: "일회 매수", params: [].concat(EXIT_PARAMS) },
@@ -116,18 +108,11 @@
     dca_ma: {
       label: "적립식 매수 + 이동평균선 조건",
       params: [
-        { name: "amount", label: "회당 매수 금액 후보(원, 쉼표로 구분)", type: "int_list", suggested: "50000, 100000, 200000" },
-        { name: "interval_days", label: "매수 간격 후보(거래일, 쉼표로 구분)", type: "int_list", suggested: "1, 5, 10" },
         { name: "ma_window", label: "이동평균 기간 후보(거래일, 쉼표로 구분)", type: "int_list", suggested: "20, 60, 120" },
-        {
-          name: "buy_when",
-          label: "조건 후보(체크한 것만 시험)",
-          type: "choice_multi",
-          options: [
-            { value: "below", label: "이동평균선 아래일 때만" },
-            { value: "above", label: "이동평균선 위일 때만" },
-          ],
-        },
+        { name: "below_amount", label: "이동평균선 아래일 때 매수금액 후보(원, 쉼표로 구분) — 비워 두면 이 구간엔 안 삼", type: "int_list", optional: true, pair: "below", suggested: "50000, 100000, 200000" },
+        { name: "below_interval_days", label: "이동평균선 아래일 때 매수빈도 후보(일수, 쉼표로 구분)", type: "int_list", optional: true, pair: "below", suggested: "1, 5, 10" },
+        { name: "above_amount", label: "이동평균선 위일 때 매수금액 후보(원, 쉼표로 구분) — 비워 두면 이 구간엔 안 삼", type: "int_list", optional: true, pair: "above", suggested: "" },
+        { name: "above_interval_days", label: "이동평균선 위일 때 매수빈도 후보(일수, 쉼표로 구분)", type: "int_list", optional: true, pair: "above", suggested: "" },
       ].concat(EXIT_PARAMS),
     },
     drop_based: {
@@ -143,6 +128,31 @@
   var OPT_MAX_COMBINATIONS = 200;
 
   // ── 공통 유틸 ──────────────────────────────────────────
+  // dca_ma의 "이동평균선 아래일 때 매수금액/매수빈도"처럼 짝을 이루는
+  // 선택값은 둘 다 채우거나 둘 다 비워야 한다. schema.params에서 같은
+  // pair 이름을 가진 항목끼리 묶어서 확인한다. 문제가 없으면 null을
+  // 돌려준다. contextLabel은 오류 문구 앞에 붙일 "몇 번째 전략(이름)"
+  // 같은 설명이다.
+  function checkParamPairs(schema, cfg, contextLabel) {
+    var pairs = {};
+    schema.params.forEach(function (p) {
+      if (!p.pair) return;
+      pairs[p.pair] = pairs[p.pair] || [];
+      pairs[p.pair].push(p);
+    });
+    var keys = Object.keys(pairs);
+    for (var i = 0; i < keys.length; i++) {
+      var members = pairs[keys[i]];
+      var filled = members.map(function (p) { return cfg[p.name] !== undefined && cfg[p.name] !== ""; });
+      var anyFilled = filled.some(Boolean);
+      var allFilled = filled.every(Boolean);
+      if (anyFilled && !allFilled) {
+        return contextLabel + "의 '" + keys[i] + "' 쪽 값은 전부 채우거나 전부 비워야 합니다.";
+      }
+    }
+    return null;
+  }
+
   function fmtNumber(n) {
     return Math.round(n).toLocaleString("ko-KR");
   }
@@ -842,10 +852,21 @@
             setStatus(btStatus, "err", (i + 1) + "번째 전략(" + schema.label + ")의 등락률 구간을 입력하세요.");
             return;
           }
+        } else if (p.optional) {
+          continue; // 선택값. 짝이 맞는지는 아래에서 따로 본다.
         } else if (cfg[p.name] === undefined || cfg[p.name] === "") {
           setStatus(btStatus, "err", (i + 1) + "번째 전략(" + schema.label + ")의 '" + p.label + "'을(를) 입력하세요.");
           return;
         }
+      }
+      var pairError = checkParamPairs(schema, cfg, (i + 1) + "번째 전략(" + schema.label + ")");
+      if (pairError) {
+        setStatus(btStatus, "err", pairError);
+        return;
+      }
+      if (cfg.key === "dca_ma" && cfg.below_amount === undefined && cfg.above_amount === undefined) {
+        setStatus(btStatus, "err", (i + 1) + "번째 전략(" + schema.label + ")은 이동평균선 아래·위 중 최소 한쪽은 매수금액과 매수빈도를 채워야 합니다.");
+        return;
       }
     }
 
@@ -1112,10 +1133,10 @@
         list = parseFloatListText(field.input.value);
       }
 
-      // 익절·손절 후보(percent_optional)는 선택값이다. 비워 두면 그
-      // 조건 없이 계산하는 조합 하나로 보고, 조합 수도 늘리지 않는다.
-      // 다른 변수는 비우면 오류다.
-      if (param.type === "percent_optional") {
+      // 선택값(익절·손절, dca_ma의 아래/위 매수금액·매수빈도)은 비워
+      // 두면 그 조건 없이 계산하는 조합 하나로 보고, 조합 수도 늘리지
+      // 않는다. 다른 변수는 비우면 오류다.
+      if (param.optional) {
         if (list.length > 0) {
           values[param.name] = list;
           count *= list.length;
@@ -1128,6 +1149,13 @@
       values[param.name] = list;
       count *= list.length;
     }
+
+    var pairError = checkParamPairs(schema, values, schema.label);
+    if (pairError) return { error: pairError };
+    if (key === "dca_ma" && values.below_amount === undefined && values.above_amount === undefined) {
+      return { error: schema.label + "은 이동평균선 아래·위 중 최소 한쪽은 매수금액과 매수빈도를 채워야 합니다." };
+    }
+
     return { values: values, count: count };
   }
 

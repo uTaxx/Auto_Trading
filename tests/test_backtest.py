@@ -56,13 +56,52 @@ def test_이동평균_아래일_때만_산다():
     strategy = Strategy(
         key="dca_ma",
         name="이평 아래",
-        buy_plan=MovingAverageDCA(amount=100_000, ma_window=60, interval_days=1, buy_when="below"),
+        buy_plan=MovingAverageDCA(ma_window=60, below_amount=100_000, below_interval_days=1),
     )
     result = run_backtest(prices, capital=10_000_000, strategy=strategy)
 
     # 60번째 인덱스(90.0, 이평 아래)에서는 사고, 61번째(110.0, 이평 위)에서는 안 산다
     assert result.iloc[60]["invested_cumulative"] > result.iloc[59]["invested_cumulative"]
     assert result.iloc[61]["invested_cumulative"] == result.iloc[60]["invested_cumulative"]
+
+
+def test_이동평균_위일_때만_산다():
+    warmup = [100.0] * 60
+    closes = warmup + [90.0, 110.0, 85.0]
+    prices = _prices(closes)
+    strategy = Strategy(
+        key="dca_ma",
+        name="이평 위",
+        buy_plan=MovingAverageDCA(ma_window=60, above_amount=50_000, above_interval_days=1),
+    )
+    result = run_backtest(prices, capital=10_000_000, strategy=strategy)
+
+    # 60번째(90.0, 이평 아래)에서는 안 사고, 61번째(110.0, 이평 위)에서는 산다
+    assert result.iloc[60]["invested_cumulative"] == result.iloc[59]["invested_cumulative"]
+    assert result.iloc[61]["invested_cumulative"] > result.iloc[60]["invested_cumulative"]
+
+
+def test_이동평균_아래_위를_다른_금액으로_동시에_살_수_있다():
+    warmup = [100.0] * 60
+    closes = warmup + [90.0, 110.0]
+    prices = _prices(closes)
+    strategy = Strategy(
+        key="dca_ma",
+        name="이평 아래위",
+        buy_plan=MovingAverageDCA(
+            ma_window=60,
+            below_amount=100_000,
+            below_interval_days=1,
+            above_amount=50_000,
+            above_interval_days=1,
+        ),
+    )
+    result = run_backtest(prices, capital=10_000_000, strategy=strategy)
+
+    below_invested = result.iloc[60]["invested_cumulative"] - result.iloc[59]["invested_cumulative"]
+    above_invested = result.iloc[61]["invested_cumulative"] - result.iloc[60]["invested_cumulative"]
+    assert below_invested == pytest.approx(100_000)
+    assert above_invested == pytest.approx(50_000)
 
 
 def test_하락폭이_클수록_많이_산다():
@@ -154,7 +193,35 @@ def test_적립식_매수는_필요한_값을_안_주면_오류를_낸다():
 
 def test_이동평균_전략은_필요한_값을_안_주면_오류를_낸다():
     with pytest.raises(ValueError, match="ma_window"):
-        build_strategy({"key": "dca_ma", "amount": 100_000, "interval_days": 21}, capital=1_000_000)
+        build_strategy({"key": "dca_ma", "below_amount": 100_000, "below_interval_days": 21}, capital=1_000_000)
+
+
+def test_이동평균_전략은_아래_위_둘_다_안_주면_오류를_낸다():
+    with pytest.raises(ValueError, match="최소 한쪽"):
+        build_strategy({"key": "dca_ma", "ma_window": 60}, capital=1_000_000)
+
+
+def test_이동평균_전략은_금액만_주고_빈도를_안_주면_오류를_낸다():
+    with pytest.raises(ValueError, match="같이 넣어야"):
+        build_strategy({"key": "dca_ma", "ma_window": 60, "below_amount": 100_000}, capital=1_000_000)
+
+
+def test_이동평균_전략은_아래_위를_따로_넣을_수_있다():
+    strategy = build_strategy(
+        {
+            "key": "dca_ma",
+            "ma_window": 60,
+            "below_amount": 100_000,
+            "below_interval_days": 1,
+            "above_amount": 50_000,
+            "above_interval_days": 5,
+        },
+        capital=1_000_000,
+    )
+    assert strategy.buy_plan.below_amount == 100_000
+    assert strategy.buy_plan.below_interval_days == 1
+    assert strategy.buy_plan.above_amount == 50_000
+    assert strategy.buy_plan.above_interval_days == 5
 
 
 def test_하락률_전략은_구간을_안_주면_오류를_낸다():

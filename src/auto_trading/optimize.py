@@ -77,10 +77,39 @@ STRATEGY_SEARCH_SCHEMAS: dict[str, dict[str, Any]] = {
     "dca_ma": {
         "label": "적립식 매수 + 이동평균선 조건",
         "params": [
-            {"name": "amount", "label": "회당 매수 금액 후보(원)", "type": "int", "suggested": [50000, 100000, 200000]},
-            {"name": "interval_days", "label": "매수 간격 후보(거래일)", "type": "int", "suggested": [1, 5, 10]},
             {"name": "ma_window", "label": "이동평균 기간 후보(거래일)", "type": "int", "suggested": [20, 60, 120]},
-            {"name": "buy_when", "label": "조건 후보", "type": "choice_multi", "suggested": ["below", "above"]},
+            {
+                "name": "below_amount",
+                "label": "이동평균선 아래일 때 매수금액 후보(원) — 비워 두면 이 구간엔 안 삼",
+                "type": "int",
+                "optional": True,
+                "pair": "below",
+                "suggested": [50000, 100000, 200000],
+            },
+            {
+                "name": "below_interval_days",
+                "label": "이동평균선 아래일 때 매수빈도 후보(일수)",
+                "type": "int",
+                "optional": True,
+                "pair": "below",
+                "suggested": [1, 5, 10],
+            },
+            {
+                "name": "above_amount",
+                "label": "이동평균선 위일 때 매수금액 후보(원) — 비워 두면 이 구간엔 안 삼",
+                "type": "int",
+                "optional": True,
+                "pair": "above",
+                "suggested": [],
+            },
+            {
+                "name": "above_interval_days",
+                "label": "이동평균선 위일 때 매수빈도 후보(일수)",
+                "type": "int",
+                "optional": True,
+                "pair": "above",
+                "suggested": [],
+            },
             *_EXIT_PARAMS,
         ],
     },
@@ -115,6 +144,23 @@ def _combinations(params: list[dict], values: dict[str, list]) -> list[dict]:
     return [dict(zip(names, combo)) for combo in product(*lists)]
 
 
+def _check_pairs(schema: dict, combo: dict, key: str) -> None:
+    """dca_ma의 아래/위 매수금액·매수빈도처럼 "pair"로 묶인 선택값은 둘
+    다 있거나 둘 다 없어야 한다. 하나만 있으면 build_strategy가 나중에
+    막긴 하지만, 계산을 시작하기 전에 바로 알려주는 편이 낫다."""
+    pairs: dict[str, list[str]] = {}
+    for p in schema["params"]:
+        pair_name = p.get("pair")
+        if pair_name:
+            pairs.setdefault(pair_name, []).append(p["name"])
+    for pair_name, names in pairs.items():
+        filled = [combo.get(name) is not None for name in names]
+        if any(filled) and not all(filled):
+            raise ValueError(
+                f"'{key}' 전략의 '{pair_name}' 쪽 값({', '.join(names)})은 전부 채우거나 전부 비워야 합니다."
+            )
+
+
 def _label_for(key: str, combo: dict) -> str:
     base = STRATEGY_SEARCH_SCHEMAS[key]["label"]
     active = {k: v for k, v in combo.items() if v is not None}
@@ -134,6 +180,7 @@ def build_strategy_configs(search: dict[str, dict[str, list]]) -> list[dict]:
         if schema is None:
             raise ValueError(f"모르는 전략 키: {key}")
         for combo in _combinations(schema["params"], values):
+            _check_pairs(schema, combo, key)
             active = {k: v for k, v in combo.items() if v is not None}
             config: dict[str, Any] = {"key": key, "label": _label_for(key, combo), **active}
             if key == "drop_based":

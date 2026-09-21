@@ -66,22 +66,30 @@ class PeriodicDCA:
 
 @dataclass
 class MovingAverageDCA:
-    """적립식 매수 + 이동평균선 조건. 정해진 날에도 조건을 만족해야 산다."""
+    """적립식 매수 + 이동평균선 조건.
 
-    amount: float
+    이동평균선 아래일 때와 위일 때 매수금액·매수빈도를 각각 따로 둔다
+    (2026-09-21에 한쪽만 고르던 것에서 바꿨다. 아래·위 둘 다 사되 금액과
+    빈도를 다르게 두고 싶다는 요청이었다). 한쪽 값을 비워 두면(None) 그
+    구간에서는 안 산다. 최소 한쪽은 채워져 있어야 한다(안 그러면 아무
+    날도 안 사는 전략이 된다. `build_strategy`가 이것을 막는다)."""
+
     ma_window: int
-    interval_days: int
-    buy_when: str = "below"  # "below"면 이평선 아래일 때만, "above"면 위일 때만
+    below_amount: float | None = None
+    below_interval_days: int | None = None
+    above_amount: float | None = None
+    above_interval_days: int | None = None
 
     def decide(self, today: pd.Series, history: pd.DataFrame, day_index: int, cash: float) -> float:
-        if day_index % self.interval_days != 0:
-            return 0.0
         if len(history) < self.ma_window:
             return 0.0
         ma = history["close"].tail(self.ma_window).mean()
         close = today["close"]
-        matched = close < ma if self.buy_when == "below" else close > ma
-        return self.amount if matched else 0.0
+        if close < ma and self.below_amount is not None:
+            return self.below_amount if day_index % self.below_interval_days == 0 else 0.0
+        if close > ma and self.above_amount is not None:
+            return self.above_amount if day_index % self.above_interval_days == 0 else 0.0
+        return 0.0
 
 
 @dataclass
@@ -297,15 +305,26 @@ def build_strategy(config: dict, capital: float) -> Strategy:
         )
 
     if key == "dca_ma":
-        amount = _require(config, "amount")
-        interval_days = _require(config, "interval_days")
         ma_window = _require(config, "ma_window")
-        buy_when = config.get("buy_when", "below")
+        below_amount = config.get("below_amount")
+        below_interval_days = config.get("below_interval_days")
+        above_amount = config.get("above_amount")
+        above_interval_days = config.get("above_interval_days")
+        if (below_amount in (None, "")) != (below_interval_days in (None, "")):
+            raise ValueError("'dca_ma' 전략의 이동평균선 아래 매수금액과 매수빈도는 같이 넣어야 합니다.")
+        if (above_amount in (None, "")) != (above_interval_days in (None, "")):
+            raise ValueError("'dca_ma' 전략의 이동평균선 위 매수금액과 매수빈도는 같이 넣어야 합니다.")
+        if below_amount in (None, "") and above_amount in (None, ""):
+            raise ValueError("'dca_ma' 전략은 이동평균선 아래·위 중 최소 한쪽은 매수금액과 매수빈도를 넣어야 합니다.")
         return Strategy(
             key=key,
             name=label,
             buy_plan=MovingAverageDCA(
-                amount=amount, ma_window=ma_window, interval_days=interval_days, buy_when=buy_when
+                ma_window=ma_window,
+                below_amount=below_amount or None,
+                below_interval_days=below_interval_days or None,
+                above_amount=above_amount or None,
+                above_interval_days=above_interval_days or None,
             ),
             take_profit_pct=take_profit_pct,
             stop_loss_pct=stop_loss_pct,
