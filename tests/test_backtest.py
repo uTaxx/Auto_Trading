@@ -4,15 +4,13 @@ import pandas as pd
 import pytest
 
 from auto_trading.backtest import (
-    STRATEGY_FACTORIES,
+    STRATEGY_SCHEMAS,
     ConditionalDCA,
     LumpSum,
     MovingAverageDCA,
     PeriodicDCA,
     Strategy,
-    make_dca,
-    make_drop_based,
-    make_lump_sum,
+    build_strategy,
     run_backtest,
 )
 
@@ -68,7 +66,7 @@ def test_이동평균_아래일_때만_산다():
 
 
 def test_하락폭이_클수록_많이_산다():
-    # 21거래일 전 가격 100에서 각각 -3%, -5%, -8%로 떨어진 경우를 만든다
+    # 21거래일 전 가격 100에서 각각 -3%, -9%로 떨어진 경우를 만든다
     base = [100.0] * 21
     prices = _prices(base + [97.0])  # -3%
     strategy = Strategy(
@@ -122,7 +120,10 @@ def test_매도_후에도_다음_매수가_이어진다():
 
 def test_총자산은_항상_원금과_손익의_합이다():
     prices = _prices([100.0, 105.0, 95.0, 110.0, 90.0, 120.0])
-    strategy = make_drop_based(1_000_000, periods=4, interval_days=1, lookback_days=1, take_profit_pct=0.1)
+    strategy = build_strategy(
+        {"key": "drop_based", "interval_days": 1, "lookback_days": 1, "tiers": [[-3, 100_000]], "take_profit_pct": 0.1},
+        capital=1_000_000,
+    )
     result = run_backtest(prices, capital=1_000_000, strategy=strategy)
 
     for _, row in result.iterrows():
@@ -137,22 +138,43 @@ def test_현금보다_많이_사지_않는다():
     assert result.iloc[0]["cash"] == 0.0
 
 
-def test_전략_묶음이_다섯_개다():
-    assert len(STRATEGY_FACTORIES) == 5
+def test_전략_종류가_네_가지다():
+    assert set(STRATEGY_SCHEMAS.keys()) == {"lump_sum", "dca", "dca_ma", "drop_based"}
 
 
-def test_레지스트리로_전략을_만들_수_있다():
-    for factory in STRATEGY_FACTORIES.values():
-        strategy = factory(1_000_000)
-        assert strategy.key
-        assert strategy.name
+def test_일회매수는_추가_입력값이_없어도_만들어진다():
+    strategy = build_strategy({"key": "lump_sum"}, capital=1_000_000)
+    assert strategy.buy_plan.amount == 1_000_000
 
 
-def test_적립식_전략_회차만큼_균등분할된다():
-    strategy = make_dca(1_200_000, periods=12)
-    assert strategy.buy_plan.amount == pytest.approx(100_000)
+def test_적립식_매수는_필요한_값을_안_주면_오류를_낸다():
+    with pytest.raises(ValueError, match="periods"):
+        build_strategy({"key": "dca", "interval_days": 21}, capital=1_000_000)
 
 
-def test_일회매수_전략_이름이_있다():
-    strategy = make_lump_sum(1_000_000)
-    assert strategy.name == "일회 매수"
+def test_이동평균_전략은_필요한_값을_안_주면_오류를_낸다():
+    with pytest.raises(ValueError, match="ma_window"):
+        build_strategy({"key": "dca_ma", "periods": 12, "interval_days": 21}, capital=1_000_000)
+
+
+def test_하락률_전략은_구간을_안_주면_오류를_낸다():
+    with pytest.raises(ValueError, match="tiers"):
+        build_strategy({"key": "drop_based", "interval_days": 21, "lookback_days": 20}, capital=1_000_000)
+
+
+def test_하락률_전략의_퍼센트_입력은_비율로_바뀐다():
+    strategy = build_strategy(
+        {"key": "drop_based", "interval_days": 21, "lookback_days": 20, "tiers": [[-3, 100_000]]},
+        capital=1_000_000,
+    )
+    assert strategy.buy_plan.tiers == [(-0.03, 100_000.0)]
+
+
+def test_모르는_전략_키는_오류를_낸다():
+    with pytest.raises(ValueError, match="모르는 전략 키"):
+        build_strategy({"key": "no_such_strategy"}, capital=1_000_000)
+
+
+def test_적립식_매수_금액은_자본을_횟수로_나눈다():
+    strategy = build_strategy({"key": "dca", "periods": 4, "interval_days": 21}, capital=1_200_000)
+    assert strategy.buy_plan.amount == pytest.approx(300_000)

@@ -11,17 +11,17 @@ on:
         description: "쉼표로 구분한 티커 (예: SPY,QQQ)"
         required: true
       strategies:
-        description: "쉼표로 구분한 전략 키 (비우면 등록된 5개 전부): lump_sum,dca,dca_ma_below,dca_ma_above,drop_based"
-        default: ""
+        description: '전략 설정 JSON 배열(최대 5개, 대시보드가 만들어 보낸다). 예: [{"key":"lump_sum"}]'
+        required: true
       capital:
         description: "종목·전략마다 쓰는 총자본(원)"
-        default: "10000000"
+        required: true
       start:
-        description: "시작일 YYYY-MM-DD (비우면 받아 둔 시세 전체)"
-        default: ""
+        description: "조회 시작일 YYYY-MM-DD"
+        required: true
       end:
-        description: "종료일 YYYY-MM-DD (비우면 받아 둔 시세 전체)"
-        default: ""
+        description: "조회 종료일 YYYY-MM-DD"
+        required: true
       upload:
         description: "결과를 02_백테스트결과에 올린다"
         type: boolean
@@ -54,9 +54,6 @@ jobs:
           GDRIVE_SA_KEY_JSON: ${{ secrets.GDRIVE_SA_KEY_JSON }}
           GDRIVE_IMPERSONATE_EMAIL: master@sondullab.com
         run: |
-          ARGS=(--symbols "$SYMBOLS" --capital "$CAPITAL")
-          if [ -n "$STRATEGIES" ]; then ARGS+=(--strategies "$STRATEGIES"); fi
-          if [ -n "$START" ]; then ARGS+=(--start "$START"); fi
-          if [ -n "$END" ]; then ARGS+=(--end "$END"); fi
+          ARGS=(--symbols "$SYMBOLS" --capital "$CAPITAL" --strategies "$STRATEGIES" --start "$START" --end "$END")
           if [ "$UPLOAD" = "true" ]; then ARGS+=(--upload); fi
           python scripts/run_backtest.py "${ARGS[@]}"

@@ -101,8 +101,9 @@ def download_text(service, folder_id: str, filename: str) -> str | None:
 def upload_text(service, folder_id: str, filename: str, content: str) -> None:
     import io
 
+    mimetype = "application/json" if filename.endswith(".json") else "text/csv"
     file_id = find_child(service, folder_id, filename)
-    media = MediaIoBaseUpload(io.BytesIO(content.encode("utf-8")), mimetype="text/csv", resumable=True)
+    media = MediaIoBaseUpload(io.BytesIO(content.encode("utf-8")), mimetype=mimetype, resumable=True)
     if file_id is None:
         metadata = {"name": filename, "parents": [folder_id]}
         service.files().create(body=metadata, media_body=media, fields="id", supportsAllDrives=True).execute()

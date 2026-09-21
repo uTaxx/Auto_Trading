@@ -4,6 +4,11 @@
 "오늘 얼마를 살 것인가"만 답하는 순수 함수에 가깝게 만들어서, 새 방식을
 추가할 때 엔진을 건드리지 않아도 된다.
 
+**전략의 세부 조건은 전부 사용자가 입력한다.** 나눠 살 횟수, 매수 간격,
+이동평균 기간, 하락률 구간 같은 값을 이 파일이 몰래 정해서 쓰지 않는다
+(2026-09-21에 기본값을 임의로 넣고 계산해서 지적받았다). `build_strategy`가
+빠진 값을 오류로 알린다.
+
 **단순화한 것 하나.** 주식 수를 정수로 끊지 않는다(소수 단위 매수를
 허용한다). 적립식 매수는 "이 금액만큼 산다"는 것이 핵심이라, 정수
 주수로 끊으면 매번 남는 잔돈을 어떻게 할지가 계산을 복잡하게 만든다.
@@ -13,7 +18,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 import pandas as pd
 
@@ -42,7 +47,7 @@ class PeriodicDCA:
     """적립식 매수. 일정 거래일 간격으로 같은 금액을 산다."""
 
     amount: float
-    interval_days: int = 21  # 기본은 한 달(약 21거래일)마다
+    interval_days: int
 
     def decide(self, today: pd.Series, history: pd.DataFrame, day_index: int, cash: float) -> float:
         return self.amount if day_index % self.interval_days == 0 else 0.0
@@ -54,7 +59,7 @@ class MovingAverageDCA:
 
     amount: float
     ma_window: int
-    interval_days: int = 21
+    interval_days: int
     buy_when: str = "below"  # "below"면 이평선 아래일 때만, "above"면 위일 때만
 
     def decide(self, today: pd.Series, history: pd.DataFrame, day_index: int, cash: float) -> float:
@@ -81,7 +86,7 @@ class ConditionalDCA:
 
     tiers: list[tuple[float, float]]
     lookback_days: int
-    interval_days: int = 21
+    interval_days: int
 
     def decide(self, today: pd.Series, history: pd.DataFrame, day_index: int, cash: float) -> float:
         if day_index % self.interval_days != 0:
@@ -163,61 +168,111 @@ def run_backtest(prices: pd.DataFrame, capital: float, strategy: Strategy) -> pd
     return pd.DataFrame(rows)
 
 
-def make_lump_sum(capital: float, take_profit_pct: float | None = None) -> Strategy:
-    return Strategy(key="lump_sum", name="일회 매수", buy_plan=LumpSum(capital), take_profit_pct=take_profit_pct)
-
-
-def make_dca(capital: float, periods: int = 12, interval_days: int = 21, take_profit_pct: float | None = None) -> Strategy:
-    amount = capital / periods
-    return Strategy(
-        key="dca",
-        name="적립식 매수",
-        buy_plan=PeriodicDCA(amount=amount, interval_days=interval_days),
-        take_profit_pct=take_profit_pct,
-    )
-
-
-def make_dca_ma(
-    capital: float,
-    periods: int = 12,
-    interval_days: int = 21,
-    ma_window: int = 60,
-    buy_when: str = "below",
-    take_profit_pct: float | None = None,
-) -> Strategy:
-    amount = capital / periods
-    return Strategy(
-        key="dca_ma",
-        name=f"적립식 매수 + {ma_window}일 이동평균선 {'아래' if buy_when == 'below' else '위'}",
-        buy_plan=MovingAverageDCA(amount=amount, ma_window=ma_window, interval_days=interval_days, buy_when=buy_when),
-        take_profit_pct=take_profit_pct,
-    )
-
-
-def make_drop_based(
-    capital: float,
-    periods: int = 12,
-    interval_days: int = 21,
-    lookback_days: int = 20,
-    take_profit_pct: float | None = None,
-) -> Strategy:
-    """하락폭이 클수록 더 많이 사는 기본 조합. 기준은 1배·1.5배·2배 매수다."""
-    base = capital / periods
-    tiers = [(-0.03, base), (-0.05, base * 1.5), (-0.08, base * 2)]
-    return Strategy(
-        key="drop_based",
-        name="하락률 기준 비중 조절 매수",
-        buy_plan=ConditionalDCA(tiers=tiers, lookback_days=lookback_days, interval_days=interval_days),
-        take_profit_pct=take_profit_pct,
-    )
-
-
-#: 대시보드나 스크립트가 이름으로 골라 쓰는 자리. 최대 5개까지 비교하는
-#: 것이 원래 요청이라, 지금 다섯 개를 기본으로 둔다.
-STRATEGY_FACTORIES = {
-    "lump_sum": make_lump_sum,
-    "dca": make_dca,
-    "dca_ma_below": lambda capital, **kw: make_dca_ma(capital, buy_when="below", **kw),
-    "dca_ma_above": lambda capital, **kw: make_dca_ma(capital, buy_when="above", **kw),
-    "drop_based": make_drop_based,
+#: 화면이 전략마다 어떤 입력칸을 보여 줘야 하는지 적어 둔 자리다.
+#: "suggested"는 칸에 미리 채워 두는 시작값일 뿐, 사용자가 직접 눌러서
+#: 바꾸지 않으면 그 값 그대로 계산에 쓰인다. 코드가 몰래 다른 값으로
+#: 바꿔치기하지 않는다.
+STRATEGY_SCHEMAS: dict[str, dict[str, Any]] = {
+    "lump_sum": {
+        "label": "일회 매수",
+        "description": "첫날 전체 자본으로 한 번에 산다.",
+        "params": [],
+    },
+    "dca": {
+        "label": "적립식 매수",
+        "description": "자본을 정해진 횟수로 나눠 일정 간격마다 산다.",
+        "params": [
+            {"name": "periods", "label": "나눠 살 횟수", "type": "int", "suggested": 12},
+            {"name": "interval_days", "label": "매수 간격(거래일)", "type": "int", "suggested": 21},
+        ],
+    },
+    "dca_ma": {
+        "label": "적립식 매수 + 이동평균선 조건",
+        "description": "정해진 날이 와도 이동평균선 조건을 만족해야 산다.",
+        "params": [
+            {"name": "periods", "label": "나눠 살 횟수", "type": "int", "suggested": 12},
+            {"name": "interval_days", "label": "매수 간격(거래일)", "type": "int", "suggested": 21},
+            {"name": "ma_window", "label": "이동평균 기간(거래일)", "type": "int", "suggested": 60},
+            {
+                "name": "buy_when",
+                "label": "조건",
+                "type": "choice",
+                "options": [
+                    {"value": "below", "label": "이동평균선 아래일 때만"},
+                    {"value": "above", "label": "이동평균선 위일 때만"},
+                ],
+                "suggested": "below",
+            },
+        ],
+    },
+    "drop_based": {
+        "label": "하락률 기준 비중 조절 매수",
+        "description": "최근 평균 주가 대비 등락률 구간마다 매수 금액을 다르게 정한다.",
+        "params": [
+            {"name": "interval_days", "label": "판단 간격(거래일)", "type": "int", "suggested": 21},
+            {"name": "lookback_days", "label": "등락률 기준 기간(거래일)", "type": "int", "suggested": 20},
+            {
+                "name": "tiers",
+                "label": "등락률 구간별 매수 금액(등락률%, 금액)",
+                "type": "tiers",
+                "suggested": [[-3, 100000], [-5, 200000]],
+            },
+        ],
+    },
 }
+
+
+def _require(config: dict, field: str):
+    if config.get(field) in (None, ""):
+        raise ValueError(f"'{config.get('key')}' 전략에 '{field}' 값이 없습니다. 사용자가 입력해야 합니다.")
+    return config[field]
+
+
+def build_strategy(config: dict, capital: float) -> Strategy:
+    """사람이 입력한 값으로 전략을 만든다. 빠진 값은 기본값을 채우지
+    않고 오류로 알린다."""
+    key = _require(config, "key")
+    label = config.get("label") or STRATEGY_SCHEMAS.get(key, {}).get("label", key)
+    take_profit_pct = config.get("take_profit_pct")
+
+    if key == "lump_sum":
+        return Strategy(key=key, name=label, buy_plan=LumpSum(capital), take_profit_pct=take_profit_pct)
+
+    if key == "dca":
+        periods = _require(config, "periods")
+        interval_days = _require(config, "interval_days")
+        return Strategy(
+            key=key,
+            name=label,
+            buy_plan=PeriodicDCA(amount=capital / periods, interval_days=interval_days),
+            take_profit_pct=take_profit_pct,
+        )
+
+    if key == "dca_ma":
+        periods = _require(config, "periods")
+        interval_days = _require(config, "interval_days")
+        ma_window = _require(config, "ma_window")
+        buy_when = config.get("buy_when", "below")
+        return Strategy(
+            key=key,
+            name=label,
+            buy_plan=MovingAverageDCA(
+                amount=capital / periods, ma_window=ma_window, interval_days=interval_days, buy_when=buy_when
+            ),
+            take_profit_pct=take_profit_pct,
+        )
+
+    if key == "drop_based":
+        interval_days = _require(config, "interval_days")
+        lookback_days = _require(config, "lookback_days")
+        raw_tiers = _require(config, "tiers")
+        # 화면에서는 등락률을 %로 받는다(-3 = -3%). 계산은 비율로 한다.
+        tiers = [(float(threshold) / 100, float(amount)) for threshold, amount in raw_tiers]
+        return Strategy(
+            key=key,
+            name=label,
+            buy_plan=ConditionalDCA(tiers=tiers, lookback_days=lookback_days, interval_days=interval_days),
+            take_profit_pct=take_profit_pct,
+        )
+
+    raise ValueError(f"모르는 전략 키: {key}")

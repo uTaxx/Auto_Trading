@@ -1,0 +1,54 @@
+name: 대시보드 배포
+
+# `dashboard/` 폴더를 GitHub Pages에 그대로 올린다. 빌드 단계가 없다.
+# 정적 파일 셋(html·css·js)이라 그대로 올리면 어긋날 구석이 없다.
+#
+# ## 켜기 전에 한 번만 (사람)
+#
+# Settings → Pages → Source를 GitHub Actions로 바꿔야 한다. 안 바꾸면
+# 이 워크플로가 배포 단계에서 거부당한다. actions/configure-pages가
+# 자동으로 켜 주는 경우도 있지만, 안 되면 손으로 한 번 바꿔야 한다.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "dashboard/**"
+      - ".github/workflows/deploy-dashboard.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 캐시를 깨기 위해 파일 주소에 배포판 번호를 박는다
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          short="${SHA:0:7}"
+          sed -i "s/app\.js/app.js?v=$short/; s/style\.css/style.css?v=$short/" dashboard/index.html
+          grep -n "?v=" dashboard/index.html
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dashboard
+
+      - id: deploy
+        name: Pages에 올리기
+        uses: actions/deploy-pages@v4

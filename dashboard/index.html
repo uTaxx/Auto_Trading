@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Auto_Trading 대시보드</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Auto_Trading</h1>
+  <p class="lede">누적 매수 기법 전략 시뮬레이터. muwon406과 분리된 별도 저장소입니다.</p>
+</header>
+
+<main>
+
+  <section class="card" id="section-prices">
+    <h2>1. 시세 수집</h2>
+    <p class="desc">종목을 입력하고 누르면 야후에서 일봉을 받아 구글 드라이브
+      <code>01_시세원본/&lt;종목&gt;/daily.csv</code>에 저장합니다. 실제 처리는
+      GitHub Actions에서 진행되며 몇 분 걸릴 수 있습니다.</p>
+    <form id="form-prices">
+      <label>종목 (쉼표로 구분)
+        <input type="text" id="prices-symbols" value="SPY, QQQ" autocomplete="off" spellcheck="false">
+      </label>
+      <label class="row">
+        <input type="checkbox" id="prices-full-refresh">
+        처음부터 10년치 다시 받기 (안 켜면 이어받기)
+      </label>
+      <button type="submit">시세 받아오기</button>
+      <div class="status" id="prices-status" role="status" aria-live="polite"></div>
+    </form>
+  </section>
+
+  <section class="card" id="section-backtest">
+    <h2>2. 전략 비교</h2>
+    <p class="desc">아래 값을 전부 직접 입력해야 계산됩니다. 미리 채워 둔 숫자는
+      시작값일 뿐이고, 바꾸지 않으면 그 값 그대로 씁니다.</p>
+
+    <form id="form-backtest">
+      <div class="grid-2">
+        <label>총자본(원)
+          <input type="number" id="bt-capital" value="10000000" min="1" required>
+        </label>
+        <label>종목 (쉼표로 구분, 이미 수집한 종목만)
+          <input type="text" id="bt-symbols" value="SPY, QQQ" required autocomplete="off" spellcheck="false">
+        </label>
+        <label>조회 시작일
+          <input type="date" id="bt-start" required>
+        </label>
+        <label>조회 종료일
+          <input type="date" id="bt-end" required>
+        </label>
+      </div>
+
+      <h3>비교할 전략 (최대 5개)</h3>
+      <div id="strategy-list"></div>
+      <button type="button" id="add-strategy">+ 전략 추가</button>
+
+      <button type="submit" id="bt-submit">비교 계산 요청</button>
+      <div class="status" id="bt-status" role="status" aria-live="polite"></div>
+    </form>
+  </section>
+
+  <section class="card" id="section-results">
+    <h2>3. 비교 결과</h2>
+    <p class="desc">계산이 끝나면 여기서 불러올 수 있습니다. 요청 직후에는 아직
+      없을 수 있으니 잠시 뒤 새로고침하세요.</p>
+    <div class="row">
+      <button type="button" id="refresh-results">결과 목록 새로고침</button>
+      <select id="result-select"><option value="">결과 목록을 새로고침하세요</option></select>
+    </div>
+    <div class="status" id="results-status" role="status" aria-live="polite"></div>
+    <div id="result-view"></div>
+  </section>
+
+</main>
+
+<footer>
+  <p>저장 위치: <code>Auto_Trading/01_시세원본</code>, <code>Auto_Trading/02_백테스트결과</code>.
+    화면에 보이는 것보다 구글 드라이브의 실제 파일이 우선입니다.</p>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
