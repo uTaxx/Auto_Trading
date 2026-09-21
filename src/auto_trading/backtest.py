@@ -182,6 +182,32 @@ def run_backtest(prices: pd.DataFrame, capital: float, strategy: Strategy) -> pd
     return pd.DataFrame(rows)
 
 
+def max_drawdown_pct(total_value: pd.Series) -> float:
+    """총자산이 그때까지의 최고점 대비 가장 많이 빠졌던 폭(%). 항상 0
+    이하다(안 빠졌으면 0)."""
+    running_max = total_value.cummax()
+    drawdown = (total_value - running_max) / running_max
+    return round(float(drawdown.min()) * 100, 2)
+
+
+def summarize_result(symbol: str, strategy: Strategy, capital: float, result: pd.DataFrame) -> dict:
+    """`run_backtest` 결과 한 줄(요약)을 만든다. 화면 표와 엑셀 보고서,
+    최적 조건 찾기가 전부 이 함수를 거쳐서, 숫자를 내는 방식이 한 곳에만
+    있게 한다."""
+    last = result.iloc[-1]
+    return {
+        "symbol": symbol,
+        "strategy_key": strategy.key,
+        "strategy_name": strategy.name,
+        "총투자금": round(last["invested_cumulative"]),
+        "실현손익": round(last["realized_pnl"]),
+        "평가손익": round(last["unrealized_pnl"]),
+        "합계": round(last["total_pnl"]),
+        "수익률": round(last["total_pnl"] / capital * 100, 2),
+        "최대낙폭": max_drawdown_pct(result["total_value"]),
+    }
+
+
 #: 화면이 전략마다 어떤 입력칸을 보여 줘야 하는지 적어 둔 자리다.
 #: "suggested"는 칸에 미리 채워 두는 시작값일 뿐, 사용자가 직접 눌러서
 #: 바꾸지 않으면 그 값 그대로 계산에 쓰인다. 코드가 몰래 다른 값으로

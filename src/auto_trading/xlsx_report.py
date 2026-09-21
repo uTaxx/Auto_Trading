@@ -67,7 +67,7 @@ def build_symbol_report(
         f"{symbol} - {strategy_name} 분석 결과",
         [f"조회기간: {start} ~ {end}", f"총자본: {capital:,.0f}원", f"생성시각(KST): {generated_at_kst}"],
     )
-    headers = ["종목", "전략", "총투자금", "실현손익", "평가손익", "합계", "수익률"]
+    headers = ["종목", "전략", "총투자금", "실현손익", "평가손익", "합계", "수익률", "최대낙폭"]
     _write_header_row(ws, table_row, headers)
     r = table_row + 1
     ws.cell(row=r, column=1, value=summary_row["symbol"])
@@ -77,7 +77,8 @@ def build_symbol_report(
     ws.cell(row=r, column=5, value=summary_row["평가손익"]).number_format = MONEY_FORMAT
     ws.cell(row=r, column=6, value=summary_row["합계"]).number_format = MONEY_FORMAT
     ws.cell(row=r, column=7, value=summary_row["수익률"] / 100).number_format = PERCENT_FORMAT
-    _set_column_widths(ws, [12, 24, 14, 14, 14, 14, 10])
+    ws.cell(row=r, column=8, value=summary_row.get("최대낙폭", 0) / 100).number_format = PERCENT_FORMAT
+    _set_column_widths(ws, [12, 24, 14, 14, 14, 14, 10, 10])
 
     ws2 = wb.create_sheet("일별 시계열")
     daily_headers = [
@@ -121,7 +122,7 @@ def build_comparison_report(
         f"종목 비교 결과 ({', '.join(symbols)})",
         [f"조회기간: {start} ~ {end}", f"총자본(종목·전략마다): {capital:,.0f}원", f"생성시각(KST): {generated_at_kst}"],
     )
-    headers = ["종목", "전략", "총투자금", "실현손익", "평가손익", "합계", "수익률"]
+    headers = ["종목", "전략", "총투자금", "실현손익", "평가손익", "합계", "수익률", "최대낙폭"]
     _write_header_row(ws, table_row, headers)
     for i, row in enumerate(summary_rows, start=table_row + 1):
         ws.cell(row=i, column=1, value=row["symbol"])
@@ -133,7 +134,8 @@ def build_comparison_report(
         pct_cell = ws.cell(row=i, column=7, value=row["수익률"] / 100)
         pct_cell.number_format = PERCENT_FORMAT
         pct_cell.font = POSITIVE_FONT if row["수익률"] >= 0 else NEGATIVE_FONT
+        ws.cell(row=i, column=8, value=row.get("최대낙폭", 0) / 100).number_format = PERCENT_FORMAT
     ws.freeze_panes = f"A{table_row + 1}"
-    _set_column_widths(ws, [12, 26, 14, 14, 14, 14, 10])
+    _set_column_widths(ws, [12, 26, 14, 14, 14, 14, 10, 10])
 
     return wb

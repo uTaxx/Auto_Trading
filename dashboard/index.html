@@ -97,6 +97,53 @@
     <div id="result-view"></div>
   </section>
 
+  <section class="card" id="section-optimize">
+    <h2>5. 최적 조건 찾기</h2>
+    <p class="desc">종목 하나와 총자본, 조회기간만 정하면 아래 네 가지 매수 방식의
+      여러 변수 조합을 한꺼번에 계산해서 수익률 순으로 보여줍니다. 후보값은
+      쉼표로 구분해서 넣고, 여기도 미리 채운 숫자는 시작값일 뿐이니 바꿔도
+      됩니다. <strong>1등만 골라내지 않고 계산한 조합 전부를 순위대로
+      남깁니다.</strong> 등락률 기준 비중 조절 매수는 구간을 하나로 단순화해서
+      찾습니다(구간을 여러 개 두는 것은 3번 전략 비교에서 직접 설정하세요).
+      익절선·손절선을 넣으면 모든 조합에 똑같이 적용됩니다. 조합이 200개를
+      넘으면 계산을 거부합니다. 계산이 끝나면 결과는 위 4번 표에서 그대로
+      조회됩니다.</p>
+
+    <form id="form-optimize">
+      <div class="grid-2">
+        <label>총자본(원)
+          <input type="number" id="opt-capital" value="10000000" min="1" required>
+        </label>
+        <label>종목 (하나, 이미 수집한 종목만)
+          <input type="text" id="opt-symbol" value="SPY" required autocomplete="off" spellcheck="false">
+        </label>
+        <label>조회 시작일
+          <input type="date" id="opt-start" required>
+        </label>
+        <label>조회 종료일
+          <input type="date" id="opt-end" required>
+        </label>
+      </div>
+
+      <div class="grid-2">
+        <label>목표 수익률(익절, %) — 비워 두면 모든 조합에 안 씀
+          <input type="number" id="opt-take-profit" step="0.1">
+        </label>
+        <label>손실 한도(손절, %) — 비워 두면 모든 조합에 안 씀
+          <input type="number" id="opt-stop-loss" step="0.1">
+        </label>
+      </div>
+
+      <h3>찾아볼 매수 방식과 변수 후보</h3>
+      <div id="optimize-strategy-list"></div>
+
+      <p class="status" id="opt-combo-status" role="status" aria-live="polite"></p>
+
+      <button type="submit" id="opt-submit">최적 조건 찾기 요청</button>
+      <div class="status" id="opt-status" role="status" aria-live="polite"></div>
+    </form>
+  </section>
+
 </main>
 
 <footer>

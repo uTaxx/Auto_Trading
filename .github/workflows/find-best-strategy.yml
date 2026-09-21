@@ -1,0 +1,71 @@
+name: 최적 조건 찾기
+
+# 종목 하나, 총자본, 조회기간만 받아서 네 가지 매수 방식의 여러 변수
+# 조합을 한꺼번에 계산하고 수익률이 가장 좋은 조합을 찾는다. 후보값
+# 목록은 search JSON 안에 들어 있고 대시보드 화면에서 사람이 채운다.
+# 결과 표는 실행 로그에 찍히고, upload를 켜면 02_백테스트결과에
+# JSON으로도 남는다.
+
+on:
+  workflow_dispatch:
+    inputs:
+      symbol:
+        description: "종목 하나 (예: SOXL)"
+        required: true
+      capital:
+        description: "총자본(원)"
+        required: true
+      start:
+        description: "조회 시작일 YYYY-MM-DD"
+        required: true
+      end:
+        description: "조회 종료일 YYYY-MM-DD"
+        required: true
+      search:
+        description: '전략 키 -> 변수별 후보값 목록 JSON(대시보드가 만들어 보낸다). 예: {"lump_sum":{},"dca":{"amount":[100000,200000],"interval_days":[1,5]}}'
+        required: true
+      take_profit_pct:
+        description: "모든 후보에 똑같이 적용할 익절선(비율, 예: 0.1). 비워 두면 안 씀"
+        required: false
+      stop_loss_pct:
+        description: "모든 후보에 똑같이 적용할 손절선(비율). 비워 두면 안 씀"
+        required: false
+      upload:
+        description: "결과를 02_백테스트결과에 올린다"
+        type: boolean
+        default: true
+
+concurrency:
+  group: find-best-strategy
+  cancel-in-progress: false
+
+jobs:
+  find-best:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt
+
+      - name: 최적 조건 찾기
+        env:
+          SYMBOL: ${{ github.event.inputs.symbol }}
+          CAPITAL: ${{ github.event.inputs.capital }}
+          START: ${{ github.event.inputs.start }}
+          END: ${{ github.event.inputs.end }}
+          SEARCH: ${{ github.event.inputs.search }}
+          TAKE_PROFIT_PCT: ${{ github.event.inputs.take_profit_pct }}
+          STOP_LOSS_PCT: ${{ github.event.inputs.stop_loss_pct }}
+          UPLOAD: ${{ github.event.inputs.upload }}
+          GDRIVE_SA_KEY_JSON: ${{ secrets.GDRIVE_SA_KEY_JSON }}
+          GDRIVE_IMPERSONATE_EMAIL: master@sondullab.com
+        run: |
+          ARGS=(--symbol "$SYMBOL" --capital "$CAPITAL" --start "$START" --end "$END" --search "$SEARCH")
+          if [ -n "$TAKE_PROFIT_PCT" ]; then ARGS+=(--take-profit-pct "$TAKE_PROFIT_PCT"); fi
+          if [ -n "$STOP_LOSS_PCT" ]; then ARGS+=(--stop-loss-pct "$STOP_LOSS_PCT"); fi
+          if [ "$UPLOAD" = "true" ]; then ARGS+=(--upload); fi
+          python scripts/find_best_strategy.py "${ARGS[@]}"

@@ -33,6 +33,7 @@ def test_종목_보고서는_요약과_일별_시계열_두_시트를_만든다(
         "평가손익": 200_000,
         "합계": 200_000,
         "수익률": 20.0,
+        "최대낙폭": -5.0,
     }
 
     wb = build_symbol_report(
@@ -51,10 +52,11 @@ def test_종목_보고서는_요약과_일별_시계열_두_시트를_만든다(
     summary_ws = wb["요약"]
     assert summary_ws["A1"].value == "SPY - 일회 매수 분석 결과"
     header_row = [cell.value for cell in summary_ws[6]]
-    assert header_row == ["종목", "전략", "총투자금", "실현손익", "평가손익", "합계", "수익률"]
+    assert header_row == ["종목", "전략", "총투자금", "실현손익", "평가손익", "합계", "수익률", "최대낙폭"]
     assert summary_ws.cell(row=7, column=1).value == "SPY"
     assert summary_ws.cell(row=7, column=7).value == 0.2  # 20% -> 0.2 (퍼센트 서식으로 표시)
     assert summary_ws.cell(row=7, column=7).number_format == "0.00%"
+    assert summary_ws.cell(row=7, column=8).value == -0.05
 
     daily_ws = wb["일별 시계열"]
     assert [cell.value for cell in daily_ws[1]][:4] == ["거래일", "종가", "현금", "보유수량"]

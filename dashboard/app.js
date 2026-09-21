@@ -10,6 +10,7 @@
     runBacktest: N8N_BASE + "/auto-trading-run-backtest",
     listResults: N8N_BASE + "/auto-trading-list-results",
     getResult: N8N_BASE + "/auto-trading-get-result",
+    findBest: N8N_BASE + "/auto-trading-find-best",
   };
 
   // 백엔드 src/auto_trading/backtest.py의 STRATEGY_SCHEMAS와 같은 내용을
@@ -61,6 +62,49 @@
   };
 
   var MAX_STRATEGIES = 5;
+
+  // 백엔드 src/auto_trading/optimize.py의 STRATEGY_SEARCH_SCHEMAS와 같은
+  // 내용을 화면에서 쓰기 위해 그대로 옮겨 적었다. 후보값 후보를 하나씩
+  // 넣지 않아도 되지만, 그 후보값 목록 자체는 화면에 미리 채워져 있고
+  // 사람이 바꿀 수 있다. 등락률 기준 비중 조절 매수는 여기서는 구간을
+  // 하나로 단순화한다(여러 구간은 3번 전략 비교에서 직접 설정한다).
+  var STRATEGY_SEARCH_SCHEMAS = {
+    lump_sum: { label: "일회 매수", params: [] },
+    dca: {
+      label: "적립식 매수",
+      params: [
+        { name: "amount", label: "회당 매수 금액 후보(원, 쉼표로 구분)", type: "int_list", suggested: "50000, 100000, 200000" },
+        { name: "interval_days", label: "매수 간격 후보(거래일, 쉼표로 구분)", type: "int_list", suggested: "1, 5, 10" },
+      ],
+    },
+    dca_ma: {
+      label: "적립식 매수 + 이동평균선 조건",
+      params: [
+        { name: "amount", label: "회당 매수 금액 후보(원, 쉼표로 구분)", type: "int_list", suggested: "50000, 100000, 200000" },
+        { name: "interval_days", label: "매수 간격 후보(거래일, 쉼표로 구분)", type: "int_list", suggested: "1, 5, 10" },
+        { name: "ma_window", label: "이동평균 기간 후보(거래일, 쉼표로 구분)", type: "int_list", suggested: "20, 60, 120" },
+        {
+          name: "buy_when",
+          label: "조건 후보(체크한 것만 시험)",
+          type: "choice_multi",
+          options: [
+            { value: "below", label: "이동평균선 아래일 때만" },
+            { value: "above", label: "이동평균선 위일 때만" },
+          ],
+        },
+      ],
+    },
+    drop_based: {
+      label: "등락률 기준 비중 조절 매수(구간 하나로 단순화)",
+      params: [
+        { name: "interval_days", label: "판단 간격 후보(거래일, 쉼표로 구분)", type: "int_list", suggested: "1, 5, 10" },
+        { name: "lookback_days", label: "등락률 기준 기간 후보(거래일, 쉼표로 구분)", type: "int_list", suggested: "1, 5, 10" },
+        { name: "threshold_pct", label: "등락률 임계값 후보(%, 쉼표로 구분)", type: "float_list", suggested: "-3, -5, -10" },
+        { name: "amount", label: "그 구간 매수 금액 후보(원, 쉼표로 구분)", type: "int_list", suggested: "100000, 200000, 300000" },
+      ],
+    },
+  };
+  var OPT_MAX_COMBINATIONS = 200;
 
   // ── 공통 유틸 ──────────────────────────────────────────
   function fmtNumber(n) {
@@ -877,7 +921,7 @@
     var table = document.createElement("table");
     var thead = document.createElement("thead");
     thead.innerHTML =
-      "<tr><th>종목</th><th>전략</th><th>총투자금</th><th>실현손익</th><th>평가손익</th><th>합계</th><th>수익률</th></tr>";
+      "<tr><th>종목</th><th>전략</th><th>총투자금</th><th>실현손익</th><th>평가손익</th><th>합계</th><th>수익률</th><th>최대낙폭</th></tr>";
     table.appendChild(thead);
     var tbody = document.createElement("tbody");
     summary.forEach(function (row) {
@@ -889,7 +933,8 @@
         "<td>" + fmtNumber(row["실현손익"]) + "</td>" +
         "<td>" + fmtNumber(row["평가손익"]) + "</td>" +
         "<td>" + fmtNumber(row["합계"]) + "</td>" +
-        "<td>" + row["수익률"] + "%</td>";
+        "<td>" + row["수익률"] + "%</td>" +
+        "<td>" + (row["최대낙폭"] !== undefined ? row["최대낙폭"] + "%" : "-") + "</td>";
       tbody.appendChild(tr);
     });
     table.appendChild(tbody);
@@ -984,4 +1029,237 @@
 
     return wrap;
   }
+
+  // ── 5. 최적 조건 찾기 ──────────────────────────────────
+  var optimizeListEl = document.getElementById("optimize-strategy-list");
+  var optComboStatus = document.getElementById("opt-combo-status");
+  var optSubmitBtn = document.getElementById("opt-submit");
+  var optBlocks = {}; // key -> { checkbox, fields, paramsHost }
+
+  function parseIntListText(text) {
+    return text
+      .split(",")
+      .map(function (s) { return parseInt(s.trim(), 10); })
+      .filter(function (n) { return !isNaN(n); });
+  }
+  function parseFloatListText(text) {
+    return text
+      .split(",")
+      .map(function (s) { return parseFloat(s.trim()); })
+      .filter(function (n) { return !isNaN(n); });
+  }
+
+  function collectOptimizeStrategy(key) {
+    var schema = STRATEGY_SEARCH_SCHEMAS[key];
+    var block = optBlocks[key];
+    var values = {};
+    var count = 1;
+    for (var i = 0; i < schema.params.length; i++) {
+      var param = schema.params[i];
+      var field = block.fields[param.name];
+      var list;
+      if (param.type === "choice_multi") {
+        list = field.checkboxes.filter(function (c) { return c.checked; }).map(function (c) { return c.value; });
+      } else if (param.type === "int_list") {
+        list = parseIntListText(field.input.value);
+      } else {
+        list = parseFloatListText(field.input.value);
+      }
+      if (list.length === 0) {
+        return { error: schema.label + "의 '" + param.label + "'에 후보값을 하나 이상 넣으세요." };
+      }
+      values[param.name] = list;
+      count *= list.length;
+    }
+    return { values: values, count: count };
+  }
+
+  function updateComboCount() {
+    var total = 0;
+    var firstError = null;
+    Object.keys(STRATEGY_SEARCH_SCHEMAS).forEach(function (key) {
+      var block = optBlocks[key];
+      if (!block.checkbox.checked) return;
+      var result = collectOptimizeStrategy(key);
+      if (result.error) {
+        if (!firstError) firstError = result.error;
+        return;
+      }
+      total += result.count;
+    });
+
+    if (firstError) {
+      setStatus(optComboStatus, "err", firstError);
+      optSubmitBtn.disabled = true;
+      return null;
+    }
+    if (total === 0) {
+      setStatus(optComboStatus, "err", "찾아볼 매수 방식을 하나 이상 선택하세요.");
+      optSubmitBtn.disabled = true;
+      return null;
+    }
+    if (total > OPT_MAX_COMBINATIONS) {
+      setStatus(optComboStatus, "err", "예상 조합 " + total + "개로 최대 " + OPT_MAX_COMBINATIONS + "개를 넘습니다. 후보값 개수를 줄이세요.");
+      optSubmitBtn.disabled = true;
+      return null;
+    }
+    setStatus(optComboStatus, "ok", "예상 조합 " + total + "개를 계산합니다.");
+    optSubmitBtn.disabled = false;
+    return total;
+  }
+
+  function renderOptimizeBlock(key, schema) {
+    var wrap = document.createElement("div");
+    wrap.className = "strategy-block";
+
+    var head = document.createElement("label");
+    head.className = "row-head";
+    var checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = true;
+    head.appendChild(checkbox);
+    head.appendChild(document.createTextNode(" " + schema.label));
+    wrap.appendChild(head);
+
+    var paramsHost = document.createElement("div");
+    paramsHost.className = "param-grid";
+    wrap.appendChild(paramsHost);
+
+    var fields = {};
+    schema.params.forEach(function (param) {
+      var fieldWrap = document.createElement("label");
+      fieldWrap.textContent = param.label;
+
+      if (param.type === "choice_multi") {
+        var optsWrap = document.createElement("div");
+        var checkEls = [];
+        param.options.forEach(function (opt) {
+          var optLabel = document.createElement("label");
+          optLabel.className = "row";
+          var optCheck = document.createElement("input");
+          optCheck.type = "checkbox";
+          optCheck.checked = true;
+          optCheck.value = opt.value;
+          optCheck.addEventListener("change", updateComboCount);
+          optLabel.appendChild(optCheck);
+          optLabel.appendChild(document.createTextNode(" " + opt.label));
+          optsWrap.appendChild(optLabel);
+          checkEls.push(optCheck);
+        });
+        fieldWrap.appendChild(optsWrap);
+        fields[param.name] = { type: "choice_multi", checkboxes: checkEls };
+      } else {
+        var input = document.createElement("input");
+        input.type = "text";
+        input.value = param.suggested || "";
+        input.autocomplete = "off";
+        input.spellcheck = false;
+        input.addEventListener("input", updateComboCount);
+        fieldWrap.appendChild(input);
+        fields[param.name] = { type: param.type, input: input };
+      }
+      paramsHost.appendChild(fieldWrap);
+    });
+
+    optimizeListEl.appendChild(wrap);
+    optBlocks[key] = { checkbox: checkbox, fields: fields, paramsHost: paramsHost };
+
+    checkbox.addEventListener("change", function () {
+      paramsHost.style.display = checkbox.checked ? "" : "none";
+      updateComboCount();
+    });
+  }
+
+  Object.keys(STRATEGY_SEARCH_SCHEMAS).forEach(function (key) {
+    renderOptimizeBlock(key, STRATEGY_SEARCH_SCHEMAS[key]);
+  });
+  updateComboCount();
+
+  document.getElementById("opt-start").value = yearsAgoStr(5);
+  document.getElementById("opt-end").value = todayStr();
+
+  var optimizeForm = document.getElementById("form-optimize");
+  var optStatus = document.getElementById("opt-status");
+  var optimizePollTimer = null;
+  function setOptimizePollTimer(t) { optimizePollTimer = t; }
+
+  optimizeForm.addEventListener("submit", function (event) {
+    event.preventDefault();
+
+    var capital = parseFloat(document.getElementById("opt-capital").value);
+    var symbol = document.getElementById("opt-symbol").value.trim().toUpperCase();
+    var start = document.getElementById("opt-start").value;
+    var end = document.getElementById("opt-end").value;
+
+    if (!symbol || !start || !end || !capital) {
+      setStatus(optStatus, "err", "총자본·종목·조회기간을 모두 입력하세요.");
+      return;
+    }
+
+    var total = updateComboCount();
+    if (total === null) {
+      setStatus(optStatus, "err", "위 후보값을 먼저 바로잡으세요.");
+      return;
+    }
+
+    var search = {};
+    Object.keys(STRATEGY_SEARCH_SCHEMAS).forEach(function (key) {
+      var block = optBlocks[key];
+      if (!block.checkbox.checked) return;
+      var result = collectOptimizeStrategy(key);
+      search[key] = result.values;
+    });
+
+    var body = {
+      symbol: symbol,
+      capital: capital,
+      start: start,
+      end: end,
+      search: JSON.stringify(search),
+      upload: true,
+    };
+    var tp = parseFloat(document.getElementById("opt-take-profit").value);
+    if (!isNaN(tp)) body.take_profit_pct = tp / 100;
+    var sl = parseFloat(document.getElementById("opt-stop-loss").value);
+    if (!isNaN(sl)) body.stop_loss_pct = sl / 100;
+
+    if (optimizePollTimer) {
+      clearTimeout(optimizePollTimer);
+      optimizePollTimer = null;
+    }
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+
+    setStatus(optStatus, "", "요청을 보내는 중입니다...");
+    fetch(URLS.checkRun + "?workflow=find-best-strategy.yml")
+      .then(function (res) { return res.ok ? res.json() : []; })
+      .catch(function () { return []; })
+      .then(function (beforeRuns) {
+        var previousRunId = beforeRuns && beforeRuns[0] ? beforeRuns[0].id : null;
+        return fetch(URLS.findBest, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }).then(function (res) {
+          if (!res.ok) throw new Error("응답 코드 " + res.status);
+          setStatus(optStatus, "", "요청을 보냈습니다(조합 " + total + "개). 완료되면 자동으로 알려 드립니다...");
+          optimizePollTimer = setTimeout(function () {
+            pollWorkflowRun("find-best-strategy.yml", optStatus, previousRunId, 1, setOptimizePollTimer, function (latest) {
+              if (latest.conclusion === "success") {
+                setStatus(optStatus, "ok", "완료됐습니다(" + symbol + "). 위 4번에 자동으로 반영했습니다.");
+                notifyIfPermitted("최적 조건 찾기 완료", symbol + " 계산이 끝났습니다.");
+                refreshBtn.click();
+              } else {
+                setStatus(optStatus, "err", "계산이 실패로 끝났습니다(" + latest.conclusion + "). GitHub Actions 로그를 확인해야 합니다.");
+                notifyIfPermitted("최적 조건 찾기 실패", symbol + " 계산이 실패했습니다.");
+              }
+            });
+          }, 5000);
+        });
+      })
+      .catch(function (err) {
+        setStatus(optStatus, "err", "요청을 보내지 못했습니다: " + err.message);
+      });
+  });
 })();

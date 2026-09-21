@@ -24,18 +24,18 @@ import json
 import os
 import re
 import sys
-from datetime import date, datetime
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from auto_trading.backtest import build_strategy, run_backtest
-from auto_trading.gdrive import _build_service, download_text, find_child, find_or_create_folder, upload_bytes, upload_text
+from auto_trading.backtest import build_strategy, run_backtest, summarize_result
+from auto_trading.gdrive import _build_service, find_or_create_folder, upload_bytes, upload_text
+from auto_trading.prices_io import filter_range, load_prices
 from auto_trading.xlsx_report import build_comparison_report, build_symbol_report
 
-PRICES_FOLDER_ID = "17RdksSi5F3kDh8GEgnZ2nu-ytYH-YW-o"  # 01_시세원본
 RESULTS_FOLDER_ID = "1W9QQnstslExQCtBvphvoCJZ-b5y9nhvt"  # 02_백테스트결과
 COMPARISON_SUBFOLDER = "종목비교결과"
 XLSX_MIMETYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -59,23 +59,6 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--end", required=True, help="조회 종료일 YYYY-MM-DD")
     parser.add_argument("--upload", action="store_true", help="결과를 02_백테스트결과에 올린다")
     return parser.parse_args()
-
-
-def _load_prices(service, symbol: str) -> pd.DataFrame:
-    symbol = symbol.strip().upper()
-    folder_id = find_child(service, PRICES_FOLDER_ID, symbol, folder_only=True)
-    text = download_text(service, folder_id, "daily.csv") if folder_id else None
-    if text is None:
-        raise SystemExit(f"{symbol}: 시세가 없습니다. 대시보드에서 먼저 받아 두세요.")
-    df = pd.read_csv(io.StringIO(text), parse_dates=["trade_date"])
-    df["trade_date"] = df["trade_date"].dt.date
-    return df
-
-
-def _filter_range(df: pd.DataFrame, start: str, end: str) -> pd.DataFrame:
-    return df[(df["trade_date"] >= date.fromisoformat(start)) & (df["trade_date"] <= date.fromisoformat(end))].reset_index(
-        drop=True
-    )
 
 
 def _safe_filename_part(text: str) -> str:
@@ -112,7 +95,7 @@ def main() -> None:
     series_by_key: dict[str, list[dict]] = {}
 
     for symbol in symbols:
-        prices = _filter_range(_load_prices(service, symbol), args.start, args.end)
+        prices = filter_range(load_prices(service, symbol), args.start, args.end)
         if prices.empty:
             print(f"{symbol}: 이 구간({args.start}~{args.end})에 시세가 없습니다. 건너뜁니다.")
             continue
@@ -120,17 +103,7 @@ def main() -> None:
         for config in strategy_configs:
             strategy = build_strategy(config, args.capital)
             result = run_backtest(prices, capital=args.capital, strategy=strategy)
-            last = result.iloc[-1]
-            summary_row = {
-                "symbol": symbol,
-                "strategy_key": strategy.key,
-                "strategy_name": strategy.name,
-                "총투자금": round(last["invested_cumulative"]),
-                "실현손익": round(last["realized_pnl"]),
-                "평가손익": round(last["unrealized_pnl"]),
-                "합계": round(last["total_pnl"]),
-                "수익률": round(last["total_pnl"] / args.capital * 100, 2),
-            }
+            summary_row = summarize_result(symbol, strategy, args.capital, result)
             summary_rows.append(summary_row)
             series_key = f"{symbol}:{strategy.key}"
             series_by_key[series_key] = [
