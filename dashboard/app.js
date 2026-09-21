@@ -13,6 +13,7 @@
     findBest: N8N_BASE + "/auto-trading-find-best",
     getFile: N8N_BASE + "/auto-trading-get-file",
     deleteResult: N8N_BASE + "/auto-trading-delete-result",
+    runWalkforward: N8N_BASE + "/auto-trading-run-walkforward",
   };
 
   // ── 0. 메뉴 탭 ─────────────────────────────────────────
@@ -1416,6 +1417,15 @@
       resultView.appendChild(wholeBtn);
     }
 
+    // Walk-forward 결과는 폴드별 학습·검증 성과를 담고 있어서 모양이
+    // 완전히 다르다. "폴드별_결과" 키로 구분해서 전용 화면을 그린다
+    // (2026-09-22에 추가). 그 외(전략 비교, 최적 조건 찾기)는 기존 표
+    // 그대로 그린다.
+    if (data["폴드별_결과"]) {
+      renderWalkforwardResult(data);
+      return;
+    }
+
     // 전략 이름을 코드에 가까운 문자열 하나로 보여주면 읽기 어렵다는
     // 지적을 받아서, 매수방식·매수금액·매수빈도·이동평균조건·등락구간·
     // 익절선·손절선을 각각 칸으로 나눴다(summarize_result의
@@ -1472,6 +1482,101 @@
 
     var similarSelection = matchingSimilarSelection(data);
     if (similarSelection) resultView.appendChild(buildSimilarFollowupNote(similarSelection));
+  }
+
+  // Walk-forward 결과 전용 화면. 폴드마다 학습기간에서 고른 조건과 그
+  // 조건을 검증기간에 그대로 적용한 성과를 나란히 보여주고, 검증기간들을
+  // 이어 붙인 전체 OOS 성과, 그리고 기존 방식(전체 기간 최적화)과의
+  // 비교를 같이 보여준다(2026-09-22).
+  function renderWalkforwardResult(data) {
+    var config = data["워크포워드_설정"] || {};
+    var folds = data["폴드별_결과"] || [];
+    var combined = data["전체_OOS_성과"] || {};
+    var baseline = data["비교_전체기간_최적화"] || [];
+
+    var intro = document.createElement("p");
+    intro.className = "desc";
+    intro.textContent =
+      "학습 " + fmtCell(config["학습기간_년"]) + "년 · 검증 " + fmtCell(config["검증기간_년"]) +
+      "년 · 이동 " + fmtCell(config["이동간격_년"]) + "년으로 폴드 " + folds.length + "개를 검증했습니다. " +
+      "'검증' 칸은 그 폴드의 학습기간에서 고른 조건을 검증기간에 손대지 않고 그대로 적용한 결과입니다. " +
+      "검증기간의 데이터는 조건을 고르는 데 전혀 쓰지 않았습니다.";
+    resultView.appendChild(intro);
+
+    var wrap = document.createElement("div");
+    wrap.className = "table-scroll";
+    var table = document.createElement("table");
+    var thead = document.createElement("thead");
+    thead.innerHTML =
+      "<tr><th>폴드</th><th>검증기간</th><th>선정조건</th>" +
+      "<th>학습 수익률</th><th>검증 수익률</th><th>검증 CAGR</th><th>검증 최대낙폭</th>" +
+      "<th>검증 회복일수</th><th>검증 Calmar</th><th>검증 거래횟수</th></tr>";
+    table.appendChild(thead);
+    var tbody = document.createElement("tbody");
+    folds.forEach(function (fold) {
+      var train = fold["학습기간_성과"] || {};
+      var test = fold["검증기간_성과"] || {};
+      var recoveryText = test["최대낙폭회복일수"] === null || test["최대낙폭회복일수"] === undefined
+        ? "회복 못 함"
+        : test["최대낙폭회복일수"] + "일";
+      var tr = document.createElement("tr");
+      tr.innerHTML =
+        "<td>" + fold["폴드"] + "</td>" +
+        "<td>" + fold["검증기간"]["시작"] + " ~ " + fold["검증기간"]["종료"] + "</td>" +
+        "<td>" + fold["선정조건"]["설명"] + "</td>" +
+        "<td>" + fmtCell(train["누적수익률"], "%") + "</td>" +
+        "<td>" + fmtCell(test["누적수익률"], "%") + "</td>" +
+        "<td>" + fmtCell(test["CAGR"], "%") + "</td>" +
+        "<td>" + fmtCell(test["최대낙폭"], "%") + "</td>" +
+        "<td>" + recoveryText + "</td>" +
+        "<td>" + fmtCell(test["Calmar"]) + "</td>" +
+        "<td>" + fmtCell(test["거래횟수"]) + "</td>";
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    resultView.appendChild(wrap);
+
+    var combinedBox = document.createElement("div");
+    combinedBox.className = "similar-box";
+    var combinedTitle = document.createElement("p");
+    combinedTitle.className = "desc";
+    var combinedStrong = document.createElement("strong");
+    combinedStrong.textContent = "전체 OOS 성과(검증기간을 자본으로 이어 붙인 것)";
+    combinedTitle.appendChild(combinedStrong);
+    combinedBox.appendChild(combinedTitle);
+    var combinedRecovery = combined["최대낙폭회복일수"] === null || combined["최대낙폭회복일수"] === undefined
+      ? "회복 못 함"
+      : combined["최대낙폭회복일수"] + "일";
+    var combinedLine = document.createElement("p");
+    combinedLine.className = "desc";
+    combinedLine.textContent =
+      "누적수익률 " + fmtCell(combined["누적수익률"], "%") + ", CAGR " + fmtCell(combined["CAGR"], "%") +
+      ", 최대낙폭 " + fmtCell(combined["최대낙폭"], "%") + ", 회복일수 " + combinedRecovery +
+      ", Calmar " + fmtCell(combined["Calmar"]) + ", 거래횟수 " + fmtCell(combined["거래횟수"]);
+    combinedBox.appendChild(combinedLine);
+    resultView.appendChild(combinedBox);
+
+    if (baseline.length > 0) {
+      var baseBox = document.createElement("div");
+      baseBox.className = "similar-box";
+      var baseTitle = document.createElement("p");
+      baseTitle.className = "desc";
+      var baseStrong = document.createElement("strong");
+      baseStrong.textContent = "비교: 기존 방식(전체 기간에서 한 번에 고른 1위)";
+      baseTitle.appendChild(baseStrong);
+      baseBox.appendChild(baseTitle);
+      var best = baseline[0];
+      var baseLine = document.createElement("p");
+      baseLine.className = "desc";
+      baseLine.textContent =
+        best["strategy_name"] + " — 전체 기간 수익률 " + best["수익률"] + "%, 최대낙폭 " +
+        best["최대낙폭"] + "%. 이 조건이 위 폴드들의 '선정조건' 칸에도 반복해서 나오는지 " +
+        "직접 견줘 보세요. 전체 기간 1위와 자주 다른 조건이 뽑혔다면, 전체 기간 1위는 " +
+        "그 기간에만 맞았던 조건(과최적화)일 수 있습니다.";
+      baseBox.appendChild(baseLine);
+      resultView.appendChild(baseBox);
+    }
   }
 
   var PALETTE = ["#2f6f65", "#b5502e", "#4a6fa5", "#8a5a9e", "#c98f1c", "#5a8f4a", "#a5455a", "#3d8f8a"];
@@ -2200,5 +2305,249 @@
     } catch (e) {
       setStatus(optAiPromptStatus, "err", "복사에 실패했습니다. 아래 칸에서 직접 선택해서 복사하세요.");
     }
+  });
+
+  // ── 6. Walk-forward 검증 ───────────────────────────────
+  // "찾아볼 매수 방식과 변수 후보" 입력 칸은 최적 조건 찾기(5번)와
+  // 똑같은 모양(STRATEGY_SEARCH_SCHEMAS)을 쓴다. 다만 이 화면의 다른
+  // 기능을 건드리지 않으려고 5번의 코드를 고쳐서 같이 쓰지 않고,
+  // 여기서 따로 만든다(2026-09-22).
+  var wfListEl = document.getElementById("walkforward-strategy-list");
+  var wfComboStatus = document.getElementById("wf-combo-status");
+  var wfSubmitBtn = document.getElementById("wf-submit");
+  var wfBlocks = {}; // key -> { checkbox, fields, paramsHost }
+
+  function collectWalkforwardStrategy(key) {
+    var schema = STRATEGY_SEARCH_SCHEMAS[key];
+    var block = wfBlocks[key];
+    var values = {};
+    var count = 1;
+    for (var i = 0; i < schema.params.length; i++) {
+      var param = schema.params[i];
+      var field = block.fields[param.name];
+      var list;
+      if (param.type === "choice_multi") {
+        list = field.checkboxes.filter(function (c) { return c.checked; }).map(function (c) { return c.value; });
+      } else if (param.type === "int_list") {
+        list = parseIntListText(field.input.value);
+      } else if (param.type === "percent_optional") {
+        list = parsePercentListText(field.input.value);
+      } else {
+        list = parseFloatListText(field.input.value);
+      }
+
+      if (param.optional) {
+        if (list.length > 0) {
+          values[param.name] = list;
+          count *= list.length;
+        }
+        continue;
+      }
+      if (list.length === 0) {
+        return { error: schema.label + "의 '" + param.label + "'에 후보값을 하나 이상 넣으세요." };
+      }
+      values[param.name] = list;
+      count *= list.length;
+    }
+
+    var pairError = checkParamPairs(schema, values, schema.label);
+    if (pairError) return { error: pairError };
+    if (key === "dca_ma" && values.below_amount === undefined && values.above_amount === undefined) {
+      return { error: schema.label + "은 이동평균선 아래·위 중 최소 한쪽은 매수금액과 매수빈도를 채워야 합니다." };
+    }
+
+    return { values: values, count: count };
+  }
+
+  function updateWalkforwardComboCount() {
+    var total = 0;
+    var firstError = null;
+    Object.keys(STRATEGY_SEARCH_SCHEMAS).forEach(function (key) {
+      var block = wfBlocks[key];
+      if (!block.checkbox.checked) return;
+      var result = collectWalkforwardStrategy(key);
+      if (result.error) {
+        if (!firstError) firstError = result.error;
+        return;
+      }
+      total += result.count;
+    });
+
+    if (firstError) {
+      setStatus(wfComboStatus, "err", firstError);
+      wfSubmitBtn.disabled = true;
+      return null;
+    }
+    if (total === 0) {
+      setStatus(wfComboStatus, "err", "찾아볼 매수 방식을 하나 이상 선택하세요.");
+      wfSubmitBtn.disabled = true;
+      return null;
+    }
+    if (total > OPT_MAX_COMBINATIONS) {
+      setStatus(wfComboStatus, "err", "폴드마다 " + total + "개 조합을 계산합니다(최대 " + OPT_MAX_COMBINATIONS + "개). 후보값 개수를 줄이세요.");
+      wfSubmitBtn.disabled = true;
+      return null;
+    }
+    setStatus(wfComboStatus, "ok", "폴드마다 " + total + "개 조합을 계산합니다(폴드 수는 요청 뒤에 정해집니다).");
+    wfSubmitBtn.disabled = false;
+    return total;
+  }
+
+  function renderWalkforwardBlock(key, schema) {
+    var wrap = document.createElement("div");
+    wrap.className = "strategy-block";
+
+    var head = document.createElement("label");
+    head.className = "row-head";
+    var checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = true;
+    head.appendChild(checkbox);
+    head.appendChild(document.createTextNode(" " + schema.label));
+    wrap.appendChild(head);
+
+    var paramsHost = document.createElement("div");
+    paramsHost.className = "param-grid";
+    wrap.appendChild(paramsHost);
+
+    var fields = {};
+    schema.params.forEach(function (param) {
+      var fieldWrap = document.createElement("label");
+      fieldWrap.textContent = param.label;
+
+      if (param.type === "choice_multi") {
+        var optsWrap = document.createElement("div");
+        var checkEls = [];
+        param.options.forEach(function (opt) {
+          var optLabel = document.createElement("label");
+          optLabel.className = "row";
+          var optCheck = document.createElement("input");
+          optCheck.type = "checkbox";
+          optCheck.checked = true;
+          optCheck.value = opt.value;
+          optCheck.addEventListener("change", updateWalkforwardComboCount);
+          optLabel.appendChild(optCheck);
+          optLabel.appendChild(document.createTextNode(" " + opt.label));
+          optsWrap.appendChild(optLabel);
+          checkEls.push(optCheck);
+        });
+        fieldWrap.appendChild(optsWrap);
+        fields[param.name] = { type: "choice_multi", checkboxes: checkEls };
+      } else {
+        var input = document.createElement("input");
+        input.type = "text";
+        input.value = param.suggested || "";
+        input.autocomplete = "off";
+        input.spellcheck = false;
+        input.addEventListener("input", updateWalkforwardComboCount);
+        fieldWrap.appendChild(input);
+        fields[param.name] = { type: param.type, input: input };
+      }
+      paramsHost.appendChild(fieldWrap);
+    });
+
+    wfListEl.appendChild(wrap);
+    wfBlocks[key] = { checkbox: checkbox, fields: fields, paramsHost: paramsHost };
+
+    checkbox.addEventListener("change", function () {
+      paramsHost.style.display = checkbox.checked ? "" : "none";
+      updateWalkforwardComboCount();
+    });
+  }
+
+  Object.keys(STRATEGY_SEARCH_SCHEMAS).forEach(function (key) {
+    renderWalkforwardBlock(key, STRATEGY_SEARCH_SCHEMAS[key]);
+  });
+  updateWalkforwardComboCount();
+
+  var walkforwardForm = document.getElementById("form-walkforward");
+  var wfStatus = document.getElementById("wf-status");
+  var walkforwardPollTimer = null;
+  function setWalkforwardPollTimer(t) { walkforwardPollTimer = t; }
+
+  walkforwardForm.addEventListener("submit", function (event) {
+    event.preventDefault();
+
+    var capital = parseFloat(document.getElementById("wf-capital").value);
+    var symbol = document.getElementById("wf-symbol").value.trim().toUpperCase();
+    var start = document.getElementById("wf-start").value;
+    var end = document.getElementById("wf-end").value;
+    var inSampleYears = parseFloat(document.getElementById("wf-in-sample-years").value);
+    var outSampleYears = parseFloat(document.getElementById("wf-out-sample-years").value);
+    var stepYears = parseFloat(document.getElementById("wf-step-years").value);
+
+    if (!symbol || !capital) {
+      setStatus(wfStatus, "err", "총자본·종목을 입력하세요.");
+      return;
+    }
+    if (!inSampleYears || !outSampleYears || !stepYears) {
+      setStatus(wfStatus, "err", "학습기간·검증기간·이동 간격을 모두 입력하세요.");
+      return;
+    }
+
+    var total = updateWalkforwardComboCount();
+    if (total === null) {
+      setStatus(wfStatus, "err", "위 후보값을 먼저 바로잡으세요.");
+      return;
+    }
+
+    var search = {};
+    Object.keys(STRATEGY_SEARCH_SCHEMAS).forEach(function (key) {
+      var block = wfBlocks[key];
+      if (!block.checkbox.checked) return;
+      var result = collectWalkforwardStrategy(key);
+      search[key] = result.values;
+    });
+
+    var body = {
+      symbol: symbol,
+      capital: capital,
+      search: JSON.stringify(search),
+      start: start,
+      end: end,
+      in_sample_years: inSampleYears,
+      out_sample_years: outSampleYears,
+      step_years: stepYears,
+      upload: true,
+    };
+
+    if (walkforwardPollTimer) {
+      clearTimeout(walkforwardPollTimer);
+      walkforwardPollTimer = null;
+    }
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+
+    setStatus(wfStatus, "", "요청을 보내는 중입니다...");
+    fetch(URLS.checkRun + "?workflow=run-walkforward.yml")
+      .then(function (res) { return res.ok ? res.json() : []; })
+      .catch(function () { return []; })
+      .then(function (beforeRuns) {
+        var previousRunId = beforeRuns && beforeRuns[0] ? beforeRuns[0].id : null;
+        return fetch(URLS.runWalkforward, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }).then(function (res) {
+          if (!res.ok) throw new Error("응답 코드 " + res.status);
+          setStatus(wfStatus, "", "요청을 보냈습니다(폴드마다 조합 " + total + "개). 완료되면 자동으로 알려 드립니다...");
+          walkforwardPollTimer = setTimeout(function () {
+            pollWorkflowRun("run-walkforward.yml", wfStatus, previousRunId, 1, setWalkforwardPollTimer, function (latest) {
+              if (latest.conclusion === "success") {
+                setStatus(wfStatus, "ok", "완료됐습니다(" + symbol + "). 비교 결과 탭에 자동으로 반영했습니다.");
+                notifyIfPermitted("Walk-forward 검증 완료", symbol + " 검증이 끝났습니다.");
+                refreshBtn.click();
+              } else {
+                setStatus(wfStatus, "err", "계산이 실패로 끝났습니다(" + latest.conclusion + "). GitHub Actions 로그를 확인해야 합니다.");
+                notifyIfPermitted("Walk-forward 검증 실패", symbol + " 검증이 실패했습니다.");
+              }
+            });
+          }, 5000);
+        });
+      })
+      .catch(function (err) {
+        setStatus(wfStatus, "err", "요청을 보내지 못했습니다: " + err.message);
+      });
   });
 })();

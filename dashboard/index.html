@@ -66,6 +66,7 @@
       <button type="button" class="subtab-btn" data-subtab="compare" role="tab" aria-selected="true">전략 비교</button>
       <button type="button" class="subtab-btn" data-subtab="results" role="tab" aria-selected="false">비교 결과</button>
       <button type="button" class="subtab-btn" data-subtab="optimize" role="tab" aria-selected="false">최적 조건 찾기</button>
+      <button type="button" class="subtab-btn" data-subtab="walkforward" role="tab" aria-selected="false">Walk-forward 검증</button>
     </nav>
 
     <div class="subtab-panel" data-subpanel="compare">
@@ -202,6 +203,64 @@
 
           <button type="submit" id="opt-submit">최적 조건 찾기 요청</button>
           <div class="status" id="opt-status" role="status" aria-live="polite"></div>
+        </form>
+      </section>
+    </div>
+
+    <div class="subtab-panel" data-subpanel="walkforward" hidden>
+      <section class="card" id="section-walkforward">
+        <h2>Walk-forward 검증</h2>
+        <p class="desc">전체 기간에서 수익률이 가장 높았던 조건 하나를 찾는 것이
+          아니라, 시세를 학습기간(In-Sample)과 검증기간(Out-of-Sample)으로 나눠
+          반복 검증합니다. 학습기간에서 찾은 조건을 <strong>검증기간의 데이터는
+          전혀 보지 않은 채로</strong> 그대로 적용해서, 학습기간에만 맞았던
+          조건(과최적화)을 걸러내려는 것입니다. 학습·검증 기간 길이와 이동
+          간격은 전부 아래에서 직접 정합니다(3년·1년·1년은 시작값일
+          뿐입니다). 조회기간을 비워 두면 이미 받아 둔 시세 전체를 씁니다.
+          같은 조건으로 기존 방식(전체 기간 최적화)도 같이 계산해서 결과에
+          나란히 남기므로, 비교 결과 탭에서 두 결과를 견줄 수 있습니다.</p>
+
+        <form id="form-walkforward">
+          <div class="grid-2">
+            <label>총자본(원)
+              <input type="number" id="wf-capital" value="10000000" min="1" required>
+            </label>
+            <label>종목 (하나, 이미 수집한 종목만)
+              <input type="text" id="wf-symbol" placeholder="예: SPY" required autocomplete="off" spellcheck="false">
+            </label>
+          </div>
+          <div class="grid-2">
+            <label>조회 시작일 (비우면 전체)
+              <input type="date" id="wf-start">
+            </label>
+            <label>조회 종료일 (비우면 전체)
+              <input type="date" id="wf-end">
+            </label>
+          </div>
+
+          <h3>학습·검증 기간 설정</h3>
+          <div class="param-grid">
+            <label>학습기간(In-Sample, 년)
+              <input type="number" id="wf-in-sample-years" value="3" min="0.1" step="0.1" required>
+            </label>
+            <label>검증기간(Out-of-Sample, 년)
+              <input type="number" id="wf-out-sample-years" value="1" min="0.1" step="0.1" required>
+            </label>
+            <label>이동 간격(Rolling, 년)
+              <input type="number" id="wf-step-years" value="1" min="0.1" step="0.1" required>
+            </label>
+          </div>
+          <p class="hint">학습 3년 뒤 검증 1년, 1년씩 밀며 반복하는 것이
+            기본값입니다. 값을 바꿔서 다른 조합(예: 학습 2년·검증 6개월)도
+            시험해 볼 수 있습니다.</p>
+
+          <h3>찾아볼 매수 방식과 변수 후보</h3>
+          <div id="walkforward-strategy-list"></div>
+
+          <p class="status" id="wf-combo-status" role="status" aria-live="polite"></p>
+
+          <button type="submit" id="wf-submit">Walk-forward 검증 요청</button>
+          <div class="status" id="wf-status" role="status" aria-live="polite"></div>
         </form>
       </section>
     </div>
