@@ -301,23 +301,36 @@
     return Math.sqrt(sum / a.length);
   }
 
+  // 과거 구간은 이미 지난 일이라 그 뒤에 값이 어떻게 움직였는지도 이미
+  // 알 수 있다. 그 구간 길이의 두 배 동안 이어진 수익률을 같이 보여준다
+  // (2026-09-21에 더함). 그 구간을 찾는 데 쓴 자리와 그 뒤 구간이 겹치지
+  // 않게, 두 배 구간까지 들어갈 자리가 있는 과거만 후보로 본다.
   function findMostSimilarPast(rows, windowDays) {
-    if (rows.length < windowDays * 2) return null;
+    var followDays = windowDays * 2;
+    if (rows.length < windowDays * 3) return null;
     var recent = rows.slice(rows.length - windowDays);
     var recentCurve = cumulativeReturnCurve(recent.map(function (r) { return r.close; }));
 
-    var searchEnd = rows.length - 2 * windowDays;
+    var searchEnd = rows.length - windowDays - followDays;
     var best = null;
     for (var start = 0; start <= searchEnd; start++) {
       var candidate = rows.slice(start, start + windowDays);
       var curve = cumulativeReturnCurve(candidate.map(function (r) { return r.close; }));
       var dist = curveDistance(recentCurve, curve);
-      if (best === null || dist < best.dist) best = { dist: dist, rows: candidate };
+      if (best === null || dist < best.dist) best = { dist: dist, rows: candidate, start: start };
     }
     if (best === null) return null;
     var first = best.rows[0];
     var last = best.rows[best.rows.length - 1];
-    return { startDate: first.date, endDate: last.date, returnPct: (last.close / first.close - 1) * 100 };
+    var followRows = rows.slice(best.start + windowDays, best.start + windowDays + followDays);
+    return {
+      startDate: first.date,
+      endDate: last.date,
+      returnPct: (last.close / first.close - 1) * 100,
+      followDays: followDays,
+      followEndDate: followRows.length ? followRows[followRows.length - 1].date : null,
+      followReturnPct: followRows.length === followDays ? (followRows[followRows.length - 1].close / last.close - 1) * 100 : null,
+    };
   }
 
   function loadPriceDetail(symbol, fileId) {
@@ -349,7 +362,10 @@
 
         var simIntro = document.createElement("p");
         simIntro.className = "desc";
-        simIntro.textContent = "값이 움직인 모양이 최근 흐름과 가장 비슷했던 과거 구간입니다. 앞으로 이렇게 된다는 뜻은 아닙니다.";
+        simIntro.textContent =
+          "값이 움직인 모양이 최근 흐름과 가장 비슷했던 과거 구간입니다. 과거 구간이라 그 뒤에 값이 " +
+          "어떻게 움직였는지도 이미 알 수 있어서, 그 구간 길이의 두 배 동안 이어진 수익률도 같이 " +
+          "보여줍니다. 그 결과가 그대로 반복된다는 뜻은 아닙니다.";
         priceDetailEl.appendChild(simIntro);
 
         SIMILAR_WINDOWS.forEach(function (w) {
@@ -362,7 +378,9 @@
             line.textContent =
               w.label + "(" + w.days + "거래일)와 가장 비슷했던 구간: " +
               match.startDate + " ~ " + match.endDate +
-              " (그 구간 수익률 " + match.returnPct.toFixed(1) + "%)";
+              " (그 구간 수익률 " + match.returnPct.toFixed(1) + "%). " +
+              "그 뒤 " + match.followDays + "거래일(" + match.endDate + " ~ " + match.followEndDate + ") 동안 수익률 " +
+              (match.followReturnPct !== null ? match.followReturnPct.toFixed(1) + "%" : "자료 부족");
           }
           priceDetailEl.appendChild(line);
         });
