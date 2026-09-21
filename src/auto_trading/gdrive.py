@@ -98,12 +98,11 @@ def download_text(service, folder_id: str, filename: str) -> str | None:
     return bytes(buffer).decode("utf-8")
 
 
-def upload_text(service, folder_id: str, filename: str, content: str) -> None:
+def upload_bytes(service, folder_id: str, filename: str, content: bytes, mimetype: str) -> None:
     import io
 
-    mimetype = "application/json" if filename.endswith(".json") else "text/csv"
     file_id = find_child(service, folder_id, filename)
-    media = MediaIoBaseUpload(io.BytesIO(content.encode("utf-8")), mimetype=mimetype, resumable=True)
+    media = MediaIoBaseUpload(io.BytesIO(content), mimetype=mimetype, resumable=True)
     if file_id is None:
         metadata = {"name": filename, "parents": [folder_id]}
         service.files().create(body=metadata, media_body=media, fields="id", supportsAllDrives=True).execute()
@@ -111,3 +110,8 @@ def upload_text(service, folder_id: str, filename: str, content: str) -> None:
     else:
         service.files().update(fileId=file_id, media_body=media, supportsAllDrives=True).execute()
         print(f"업데이트 완료: {filename}")
+
+
+def upload_text(service, folder_id: str, filename: str, content: str) -> None:
+    mimetype = "application/json" if filename.endswith(".json") else "text/csv"
+    upload_bytes(service, folder_id, filename, content.encode("utf-8"), mimetype)
