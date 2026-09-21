@@ -1,0 +1,42 @@
+name: 시세 업데이트
+
+# 대시보드 버튼이 n8n 웹훅을 거쳐 이 워크플로를 부른다. 손으로도 직접
+# 실행할 수 있다(Actions 탭에서 Run workflow).
+#
+# 이미 받아 둔 종목은 마지막 날짜 다음부터만 받는다. full_refresh를 켜면
+# 10년치를 처음부터 다시 받아 덮어쓴다.
+
+on:
+  workflow_dispatch:
+    inputs:
+      symbols:
+        description: "쉼표로 구분한 티커 (예: SPY,QQQ)"
+        required: true
+      full_refresh:
+        description: "true면 10년치를 처음부터 다시 받는다"
+        type: boolean
+        default: false
+
+concurrency:
+  group: update-prices
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt
+
+      - name: 시세 받아 드라이브에 저장
+        env:
+          SYMBOLS: ${{ github.event.inputs.symbols }}
+          FULL_REFRESH: ${{ github.event.inputs.full_refresh }}
+          GDRIVE_SA_KEY_JSON: ${{ secrets.GDRIVE_SA_KEY_JSON }}
+        run: |
+          python scripts/update_prices.py --symbols "$SYMBOLS" --full-refresh "$FULL_REFRESH"
