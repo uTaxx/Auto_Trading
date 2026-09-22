@@ -32,7 +32,13 @@ import pandas as pd
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from auto_trading.backtest import build_strategy, run_backtest, summarize_result
-from auto_trading.gdrive import _build_service, find_or_create_folder, upload_bytes, upload_text
+from auto_trading.gdrive import (
+    _build_service,
+    find_or_create_folder,
+    next_result_number,
+    upload_bytes,
+    upload_text,
+)
 from auto_trading.prices_io import filter_range, load_prices
 from auto_trading.xlsx_report import build_comparison_report, build_symbol_report
 
@@ -162,7 +168,9 @@ def main() -> None:
             service, comparison_folder_id, comparison_xlsx_name, _workbook_bytes(comparison_workbook), XLSX_MIMETYPE
         )
 
+        결과번호 = next_result_number(service, RESULTS_FOLDER_ID)
         payload = {
+            "결과번호": 결과번호,
             "생성시각_KST": generated_at_text,
             "종목": symbols,
             "전략설정": strategy_configs,
@@ -172,8 +180,9 @@ def main() -> None:
             "시계열": series_by_key,
             "비교엑셀": {"file_id": comparison_file_id, "이름": comparison_xlsx_name},
         }
-        json_filename = f"비교_{now_kst.strftime('%Y%m%d_%H%M%S')}_{'-'.join(symbols)}.json"
+        json_filename = f"{결과번호:04d}_비교_{now_kst.strftime('%Y%m%d_%H%M%S')}_{'-'.join(symbols)}.json"
         upload_text(service, RESULTS_FOLDER_ID, json_filename, json.dumps(payload, ensure_ascii=False, indent=2))
+        print(f"결과번호 {결과번호}로 저장했습니다.")
 
 
 if __name__ == "__main__":

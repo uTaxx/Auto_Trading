@@ -1305,7 +1305,10 @@
       })
       .then(function (files) {
         resultSelect.innerHTML = "";
-        if (!files || files.length === 0) {
+        // "_"로 시작하는 파일은 결과가 아니라 내부용이다(예: 결과번호를
+        // 매기는 카운터 파일 _결과번호.json). 목록에서 뺀다.
+        files = (files || []).filter(function (f) { return f.name && f.name.indexOf("_") !== 0; });
+        if (files.length === 0) {
           var o = document.createElement("option");
           o.textContent = "아직 결과가 없습니다";
           resultSelect.appendChild(o);
@@ -1315,7 +1318,11 @@
         files.forEach(function (f) {
           var o = document.createElement("option");
           o.value = f.id;
-          o.textContent = f.name + " (" + fmtDateTimeKST(f.modifiedTime) + ")";
+          // 파일명 앞의 네 자리 숫자가 결과번호다(예: 0007_최적화_...).
+          // 없는 옛 파일은 번호 없이 그대로 보여준다.
+          var numbered = /^(\d+)_(.+)$/.exec(f.name);
+          var label = numbered ? numbered[1].replace(/^0+(?=\d)/, "") + "번 · " + numbered[2] : f.name;
+          o.textContent = label + " (" + fmtDateTimeKST(f.modifiedTime) + ")";
           resultSelect.appendChild(o);
         });
         setStatus(resultsStatus, "ok", files.length + "건을 찾았습니다.");
@@ -1342,7 +1349,8 @@
         return res.json();
       })
       .then(function (data) {
-        setStatus(resultsStatus, "ok", "생성 시각(KST): " + (data["생성시각_KST"] || "알 수 없음"));
+        var numberPrefix = data["결과번호"] ? "결과 " + data["결과번호"] + "번 · " : "";
+        setStatus(resultsStatus, "ok", numberPrefix + "생성 시각(KST): " + (data["생성시각_KST"] || "알 수 없음"));
         currentResultId = id;
         renderResult(data);
         deleteResultBtn.disabled = false;
@@ -2362,11 +2370,15 @@
     updateComboCount();
   }
 
-  // 파일 이름 "최적화_20260921_140501_SPY.json"에서 종목만 뽑아 드롭박스
-  // 문구에 쓴다. 내용을 다 받지 않아도 목록을 채울 수 있어서 가볍다.
+  // 파일 이름 "0007_최적화_20260921_140501_SPY.json"(결과번호가 붙기
+  // 전의 옛 파일은 "최적화_20260921_140501_SPY.json")에서 결과번호와
+  // 종목을 뽑아 드롭박스 문구에 쓴다. 내용을 다 받지 않아도 목록을
+  // 채울 수 있어서 가볍다.
   function symbolFromOptimizeFilename(name) {
-    var m = /^최적화_\d{8}_\d{6}_(.+)\.json$/.exec(name || "");
-    return m ? m[1] : name;
+    var m = /^(?:(\d+)_)?최적화_\d{8}_\d{6}_(.+)\.json$/.exec(name || "");
+    if (!m) return name;
+    var number = m[1] ? m[1].replace(/^0+(?=\d)/, "") + "번 · " : "";
+    return number + m[2];
   }
 
   function loadOptimizeResultById(id) {
@@ -2386,7 +2398,7 @@
     .then(function (res) { return res.ok ? res.json() : []; })
     .catch(function () { return []; })
     .then(function (files) {
-      return (files || []).filter(function (f) { return f.name && f.name.indexOf("최적화_") === 0; });
+      return (files || []).filter(function (f) { return f.name && /^(\d+_)?최적화_/.test(f.name); });
     })
     .then(function (files) {
       optPrevSelect.innerHTML = "";

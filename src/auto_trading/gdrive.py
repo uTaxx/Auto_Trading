@@ -119,3 +119,26 @@ def upload_bytes(service, folder_id: str, filename: str, content: bytes, mimetyp
 def upload_text(service, folder_id: str, filename: str, content: str) -> str:
     mimetype = "application/json" if filename.endswith(".json") else "text/csv"
     return upload_bytes(service, folder_id, filename, content.encode("utf-8"), mimetype)
+
+
+COUNTER_FILENAME = "_결과번호.json"
+
+
+def next_result_number(service, folder_id: str) -> int:
+    """비교분석 결과마다 매기는 일련번호. 이 번호로 나중에 그 결과를
+    짧게 가리킬 수 있게 하려는 것이다(find_best_strategy.py,
+    run_backtest.py, run_walkforward.py가 공통으로 쓴다).
+
+    folder_id의 카운터 파일(_결과번호.json)에 남은 마지막 번호에 1을
+    더해 돌려주고, 그 값을 다시 카운터 파일에 적어 둔다. 파일이 없으면
+    1부터 시작한다.
+
+    사람이 손으로 실행을 트리거하는 구조라 두 실행이 동시에 번호를
+    매길 일은 드물지만, 그런 경우 번호가 겹칠 수 있다. 원자적으로
+    막는 장치는 아니다.
+    """
+    current = download_text(service, folder_id, COUNTER_FILENAME)
+    last_number = json.loads(current)["마지막번호"] if current else 0
+    next_number = last_number + 1
+    upload_text(service, folder_id, COUNTER_FILENAME, json.dumps({"마지막번호": next_number}, ensure_ascii=False))
+    return next_number
