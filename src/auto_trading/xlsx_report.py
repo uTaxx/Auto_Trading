@@ -69,7 +69,7 @@ def build_symbol_report(
     )
     headers = [
         "종목", "매수방식", "매수금액", "매수빈도", "이동평균조건", "등락구간", "익절선", "손절선",
-        "총투자금", "실현손익", "평가손익", "합계", "수익률", "최대낙폭",
+        "총투자금", "실현손익", "평가손익", "합계", "수익률", "최대낙폭", "현금부족일수",
     ]
     _write_header_row(ws, table_row, headers)
     r = table_row + 1
@@ -89,16 +89,18 @@ def build_symbol_report(
     ws.cell(row=r, column=12, value=summary_row["합계"]).number_format = MONEY_FORMAT
     ws.cell(row=r, column=13, value=summary_row["수익률"] / 100).number_format = PERCENT_FORMAT
     ws.cell(row=r, column=14, value=summary_row.get("최대낙폭", 0) / 100).number_format = PERCENT_FORMAT
-    _set_column_widths(ws, [10, 18, 12, 10, 22, 22, 9, 9, 14, 14, 14, 14, 10, 10])
+    ws.cell(row=r, column=15, value=summary_row.get("현금부족일수", 0))
+    _set_column_widths(ws, [10, 18, 12, 10, 22, 22, 9, 9, 14, 14, 14, 14, 10, 10, 12])
 
     ws2 = wb.create_sheet("일별 시계열")
     daily_headers = [
-        "거래일", "종가", "당일매수금액", "당일매도금액", "매도유형", "현금", "보유수량", "평균단가",
-        "누적투자금", "평가금액", "실현손익", "평가손익", "손익합계", "총자산", "누적수익률",
+        "거래일", "종가", "당일매수금액", "당일매수부족금액", "당일매도금액", "매도유형", "현금", "보유수량",
+        "평균단가", "누적투자금", "평가금액", "실현손익", "평가손익", "손익합계", "총자산", "누적수익률",
     ]
     _write_header_row(ws2, 1, daily_headers)
     for r_idx, row_data in enumerate(daily.itertuples(index=False), start=2):
         buy_amount = float(getattr(row_data, "buy_amount", 0.0) or 0.0)
+        buy_shortfall = float(getattr(row_data, "buy_shortfall", 0.0) or 0.0)
         sell_amount = float(getattr(row_data, "sell_amount", 0.0) or 0.0)
         sell_type = getattr(row_data, "sell_type", None)
         if pd.isna(sell_type):  # 매도 없는 날은 pandas가 None을 NaN으로 바꿔 둔다
@@ -109,22 +111,26 @@ def build_symbol_report(
         ws2.cell(row=r_idx, column=2, value=round(float(row_data.close))).number_format = MONEY_FORMAT
         if buy_amount > 0:
             ws2.cell(row=r_idx, column=3, value=round(buy_amount)).number_format = MONEY_FORMAT
+        if buy_shortfall > 0:
+            cell = ws2.cell(row=r_idx, column=4, value=round(buy_shortfall))
+            cell.number_format = MONEY_FORMAT
+            cell.font = NEGATIVE_FONT
         if sell_amount > 0:
-            ws2.cell(row=r_idx, column=4, value=round(sell_amount)).number_format = MONEY_FORMAT
-        ws2.cell(row=r_idx, column=5, value=sell_type)
-        ws2.cell(row=r_idx, column=6, value=round(float(row_data.cash))).number_format = MONEY_FORMAT
-        ws2.cell(row=r_idx, column=7, value=float(row_data.shares)).number_format = SHARE_FORMAT
-        ws2.cell(row=r_idx, column=8, value=round(float(row_data.avg_cost))).number_format = MONEY_FORMAT
-        ws2.cell(row=r_idx, column=9, value=round(float(row_data.invested_cumulative))).number_format = MONEY_FORMAT
-        ws2.cell(row=r_idx, column=10, value=round(float(row_data.market_value))).number_format = MONEY_FORMAT
-        ws2.cell(row=r_idx, column=11, value=round(float(row_data.realized_pnl))).number_format = MONEY_FORMAT
-        ws2.cell(row=r_idx, column=12, value=round(float(row_data.unrealized_pnl))).number_format = MONEY_FORMAT
-        ws2.cell(row=r_idx, column=13, value=round(total_pnl)).number_format = MONEY_FORMAT
-        ws2.cell(row=r_idx, column=14, value=round(float(row_data.total_value))).number_format = MONEY_FORMAT
+            ws2.cell(row=r_idx, column=5, value=round(sell_amount)).number_format = MONEY_FORMAT
+        ws2.cell(row=r_idx, column=6, value=sell_type)
+        ws2.cell(row=r_idx, column=7, value=round(float(row_data.cash))).number_format = MONEY_FORMAT
+        ws2.cell(row=r_idx, column=8, value=float(row_data.shares)).number_format = SHARE_FORMAT
+        ws2.cell(row=r_idx, column=9, value=round(float(row_data.avg_cost))).number_format = MONEY_FORMAT
+        ws2.cell(row=r_idx, column=10, value=round(float(row_data.invested_cumulative))).number_format = MONEY_FORMAT
+        ws2.cell(row=r_idx, column=11, value=round(float(row_data.market_value))).number_format = MONEY_FORMAT
+        ws2.cell(row=r_idx, column=12, value=round(float(row_data.realized_pnl))).number_format = MONEY_FORMAT
+        ws2.cell(row=r_idx, column=13, value=round(float(row_data.unrealized_pnl))).number_format = MONEY_FORMAT
+        ws2.cell(row=r_idx, column=14, value=round(total_pnl)).number_format = MONEY_FORMAT
+        ws2.cell(row=r_idx, column=15, value=round(float(row_data.total_value))).number_format = MONEY_FORMAT
         if capital:
-            ws2.cell(row=r_idx, column=15, value=total_pnl / capital).number_format = PERCENT_FORMAT
+            ws2.cell(row=r_idx, column=16, value=total_pnl / capital).number_format = PERCENT_FORMAT
     ws2.freeze_panes = "A2"
-    _set_column_widths(ws2, [12, 12, 13, 13, 9, 12, 12, 12, 14, 14, 13, 13, 13, 14, 12])
+    _set_column_widths(ws2, [12, 12, 13, 15, 13, 9, 12, 12, 12, 14, 14, 13, 13, 13, 14, 12])
 
     return wb
 
@@ -149,7 +155,7 @@ def build_comparison_report(
     )
     headers = [
         "종목", "매수방식", "매수금액", "매수빈도", "이동평균조건", "등락구간", "익절선", "손절선",
-        "총투자금", "실현손익", "평가손익", "합계", "수익률", "최대낙폭",
+        "총투자금", "실현손익", "평가손익", "합계", "수익률", "최대낙폭", "현금부족일수",
     ]
     _write_header_row(ws, table_row, headers)
     for i, row in enumerate(summary_rows, start=table_row + 1):
@@ -171,7 +177,10 @@ def build_comparison_report(
         pct_cell.number_format = PERCENT_FORMAT
         pct_cell.font = POSITIVE_FONT if row["수익률"] >= 0 else NEGATIVE_FONT
         ws.cell(row=i, column=14, value=row.get("최대낙폭", 0) / 100).number_format = PERCENT_FORMAT
+        shortfall_days_cell = ws.cell(row=i, column=15, value=row.get("현금부족일수", 0))
+        if row.get("현금부족일수", 0) > 0:
+            shortfall_days_cell.font = NEGATIVE_FONT
     ws.freeze_panes = f"A{table_row + 1}"
-    _set_column_widths(ws, [10, 18, 12, 10, 22, 22, 9, 9, 14, 14, 14, 14, 10, 10])
+    _set_column_widths(ws, [10, 18, 12, 10, 22, 22, 9, 9, 14, 14, 14, 14, 10, 10, 12])
 
     return wb

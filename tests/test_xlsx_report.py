@@ -41,6 +41,7 @@ def test_종목_보고서는_요약과_일별_시계열_두_시트를_만든다(
         "합계": 200_000,
         "수익률": 20.0,
         "최대낙폭": -5.0,
+        "현금부족일수": 0,
     }
 
     wb = build_symbol_report(
@@ -61,7 +62,7 @@ def test_종목_보고서는_요약과_일별_시계열_두_시트를_만든다(
     header_row = [cell.value for cell in summary_ws[6]]
     assert header_row == [
         "종목", "매수방식", "매수금액", "매수빈도", "이동평균조건", "등락구간", "익절선", "손절선",
-        "총투자금", "실현손익", "평가손익", "합계", "수익률", "최대낙폭",
+        "총투자금", "실현손익", "평가손익", "합계", "수익률", "최대낙폭", "현금부족일수",
     ]
     assert summary_ws.cell(row=7, column=1).value == "SPY"
     assert summary_ws.cell(row=7, column=2).value == "일회 매수"
@@ -69,13 +70,17 @@ def test_종목_보고서는_요약과_일별_시계열_두_시트를_만든다(
     assert summary_ws.cell(row=7, column=13).value == 0.2  # 20% -> 0.2 (퍼센트 서식으로 표시)
     assert summary_ws.cell(row=7, column=13).number_format == "0.00%"
     assert summary_ws.cell(row=7, column=14).value == -0.05
+    assert summary_ws.cell(row=7, column=15).value == 0
 
     daily_ws = wb["일별 시계열"]
-    assert [cell.value for cell in daily_ws[1]][:5] == ["거래일", "종가", "당일매수금액", "당일매도금액", "매도유형"]
+    assert [cell.value for cell in daily_ws[1]][:6] == [
+        "거래일", "종가", "당일매수금액", "당일매수부족금액", "당일매도금액", "매도유형",
+    ]
     assert daily_ws.max_row == 1 + len(result)  # 헤더 한 줄 + 거래일 수만큼
     assert daily_ws.cell(row=2, column=1).value == "2024-01-02"
     # 첫날 일회 매수가 실행됐으니 당일매수금액(3번째 칸)이 찍혀야 한다
     assert daily_ws.cell(row=2, column=3).value == 1_000_000
+    assert daily_ws.cell(row=2, column=4).value is None  # 현금이 모자라지 않았으니 부족금액은 빈칸
     assert daily_ws.cell(row=3, column=3).value is None  # 둘째 날은 안 샀다
 
 
@@ -83,10 +88,12 @@ def test_비교_보고서는_수익률_부호에_따라_글자색이_다르다()
     summary_rows = [
         {"symbol": "SPY", "strategy_key": "lump_sum", "strategy_name": "일회 매수",
          "매수방식": "일회 매수", "매수금액": 1_000_000,
-         "총투자금": 1_000_000, "실현손익": 0, "평가손익": 200_000, "합계": 200_000, "수익률": 20.0},
+         "총투자금": 1_000_000, "실현손익": 0, "평가손익": 200_000, "합계": 200_000, "수익률": 20.0,
+         "현금부족일수": 0},
         {"symbol": "QQQ", "strategy_key": "lump_sum", "strategy_name": "일회 매수",
          "매수방식": "일회 매수", "매수금액": 1_000_000,
-         "총투자금": 1_000_000, "실현손익": 0, "평가손익": -50_000, "합계": -50_000, "수익률": -5.0},
+         "총투자금": 1_000_000, "실현손익": 0, "평가손익": -50_000, "합계": -50_000, "수익률": -5.0,
+         "현금부족일수": 3},
     ]
 
     wb = build_comparison_report(
@@ -103,7 +110,7 @@ def test_비교_보고서는_수익률_부호에_따라_글자색이_다르다()
     header_row = [cell.value for cell in ws[6]]
     assert header_row == [
         "종목", "매수방식", "매수금액", "매수빈도", "이동평균조건", "등락구간", "익절선", "손절선",
-        "총투자금", "실현손익", "평가손익", "합계", "수익률", "최대낙폭",
+        "총투자금", "실현손익", "평가손익", "합계", "수익률", "최대낙폭", "현금부족일수",
     ]
     positive_cell = ws.cell(row=7, column=13)
     negative_cell = ws.cell(row=8, column=13)
@@ -111,3 +118,6 @@ def test_비교_보고서는_수익률_부호에_따라_글자색이_다르다()
     assert negative_cell.value == -0.05
     assert positive_cell.font.color.rgb.endswith("1B7A43")
     assert negative_cell.font.color.rgb.endswith("B5502E")
+    assert ws.cell(row=7, column=15).value == 0
+    assert ws.cell(row=8, column=15).value == 3
+    assert ws.cell(row=8, column=15).font.color.rgb.endswith("B5502E")  # 부족한 날이 있으면 강조

@@ -179,6 +179,41 @@ def test_현금보다_많이_사지_않는다():
     assert result.iloc[0]["cash"] == 0.0
 
 
+def test_현금이_모자라면_그날_부족금액이_찍힌다():
+    # 자본 300, 매일 100씩 사는 적립식. 사흘치(300)를 사고 나면
+    # 나흘째부터 사려는 100 중 현금이 없어서 하나도 못 산다.
+    prices = _prices([100.0] * 5)
+    strategy = Strategy(key="dca", name="적립식", buy_plan=PeriodicDCA(amount=100.0, interval_days=1))
+    result = run_backtest(prices, capital=300.0, strategy=strategy)
+
+    assert result.iloc[0]["buy_shortfall"] == 0.0
+    assert result.iloc[1]["buy_shortfall"] == 0.0
+    assert result.iloc[2]["buy_shortfall"] == 0.0  # 셋째 날까지는 300을 다 써서 산다
+    assert result.iloc[3]["buy_shortfall"] == 100.0  # 남은 현금 0인데 100을 사려 함
+    assert result.iloc[3]["buy_amount"] == 0.0
+    assert result.iloc[4]["buy_shortfall"] == 100.0
+
+
+def test_summarize_result은_현금부족일수와_금액을_더한다():
+    prices = _prices([100.0] * 5)
+    strategy = Strategy(key="dca", name="적립식", buy_plan=PeriodicDCA(amount=100.0, interval_days=1))
+    result = run_backtest(prices, capital=300.0, strategy=strategy)
+    row = summarize_result("TEST", strategy, 300.0, result)
+
+    assert row["현금부족일수"] == 2  # 나흘째·닷새째, 이틀 동안 100씩 못 샀다
+    assert row["현금부족금액"] == 200.0
+
+
+def test_현금이_충분하면_부족일수는_0():
+    prices = _prices([100.0, 110.0, 120.0])
+    strategy = Strategy(key="lump_sum", name="일회", buy_plan=LumpSum(1_000_000))
+    result = run_backtest(prices, capital=1_000_000, strategy=strategy)
+    row = summarize_result("TEST", strategy, 1_000_000, result)
+
+    assert row["현금부족일수"] == 0
+    assert row["현금부족금액"] == 0
+
+
 def test_전략_종류가_네_가지다():
     assert set(STRATEGY_SCHEMAS.keys()) == {"lump_sum", "dca", "dca_ma", "drop_based"}
 

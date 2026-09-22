@@ -1447,7 +1447,7 @@
     thead.innerHTML =
       "<tr><th>종목</th><th>매수방식</th><th>매수금액</th><th>매수빈도</th><th>이동평균조건</th>" +
       "<th>등락구간</th><th>익절선</th><th>손절선</th><th>총투자금</th><th>실현손익</th>" +
-      "<th>평가손익</th><th>합계</th><th>수익률</th><th>최대낙폭</th><th>엑셀</th></tr>";
+      "<th>평가손익</th><th>합계</th><th>수익률</th><th>최대낙폭</th><th>현금부족일수</th><th>엑셀</th></tr>";
     table.appendChild(thead);
     var tbody = document.createElement("tbody");
     summary.forEach(function (row) {
@@ -1467,6 +1467,11 @@
         "<td>" + fmtNumber(row["합계"]) + "</td>" +
         "<td>" + row["수익률"] + "%</td>" +
         "<td>" + fmtCell(row["최대낙폭"], "%") + "</td>" +
+        "<td>" + (
+          row["현금부족일수"]
+            ? "<span class=\"result-tag negative\">" + row["현금부족일수"] + "일</span>"
+            : fmtCell(row["현금부족일수"])
+        ) + "</td>" +
         "<td></td>";
       if (row["엑셀"] && row["엑셀"].file_id) {
         var excelBtn = document.createElement("button");

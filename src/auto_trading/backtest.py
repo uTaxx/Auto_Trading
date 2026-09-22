@@ -163,8 +163,12 @@ def run_backtest(prices: pd.DataFrame, capital: float, strategy: Strategy) -> pd
                 avg_cost = 0.0
 
         history = prices.iloc[: i + 1]
-        buy_amount = strategy.buy_plan.decide(row, history, i, cash)
-        buy_amount = max(0.0, min(buy_amount, cash))
+        requested_amount = strategy.buy_plan.decide(row, history, i, cash)
+        buy_amount = max(0.0, min(requested_amount, cash))
+        # 사려던 금액보다 실제로 산 금액이 적으면 그만큼 현금이 모자랐던
+        # 것이다(2026-09-22에 추가. 전에는 표에 나오는 "매수금액"이 설정값일
+        # 뿐이라, 현금이 부족해서 그보다 적게 샀던 날을 알아볼 길이 없었다).
+        shortfall = max(0.0, requested_amount - buy_amount)
         if buy_amount > 0 and close > 0:
             bought_shares = buy_amount / close
             new_shares = shares + bought_shares
@@ -189,6 +193,7 @@ def run_backtest(prices: pd.DataFrame, capital: float, strategy: Strategy) -> pd
                 "total_pnl": realized_pnl + unrealized_pnl,
                 "total_value": cash + market_value,
                 "buy_amount": buy_amount,
+                "buy_shortfall": shortfall,
                 "sell_amount": sell_amount,
                 "sell_type": sell_type,
             }
@@ -243,6 +248,7 @@ def summarize_result(symbol: str, strategy: Strategy, capital: float, result: pd
     최적 조건 찾기가 전부 이 함수를 거쳐서, 숫자를 내는 방식이 한 곳에만
     있게 한다."""
     last = result.iloc[-1]
+    shortfall_days = int((result["buy_shortfall"] > 0).sum())
     row = {
         "symbol": symbol,
         "strategy_key": strategy.key,
@@ -253,6 +259,10 @@ def summarize_result(symbol: str, strategy: Strategy, capital: float, result: pd
         "합계": round(last["total_pnl"]),
         "수익률": round(last["total_pnl"] / capital * 100, 2),
         "최대낙폭": max_drawdown_pct(result["total_value"]),
+        # 사려던 금액보다 현금이 모자라서 설정값대로 못 산 날 수와 그
+        # 부족했던 금액의 합. 0이면 기간 내내 설정값 그대로 샀다는 뜻이다.
+        "현금부족일수": shortfall_days,
+        "현금부족금액": round(float(result["buy_shortfall"].sum())),
     }
     row.update(describe_strategy(strategy))
     return row
