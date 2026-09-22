@@ -3,7 +3,8 @@ from datetime import date, timedelta
 import pandas as pd
 
 from auto_trading.backtest import LumpSum, Strategy, run_backtest
-from auto_trading.xlsx_report import build_comparison_report, build_symbol_report
+from auto_trading.portfolio import run_portfolio_backtest, summarize_portfolio_result
+from auto_trading.xlsx_report import build_comparison_report, build_portfolio_report, build_symbol_report
 
 
 def _prices(closes: list[float]) -> pd.DataFrame:
@@ -121,3 +122,39 @@ def test_비교_보고서는_수익률_부호에_따라_글자색이_다르다()
     assert ws.cell(row=7, column=15).value == 0
     assert ws.cell(row=8, column=15).value == 3
     assert ws.cell(row=8, column=15).font.color.rgb.endswith("B5502E")  # 부족한 날이 있으면 강조
+
+
+def test_포트폴리오_보고서는_요약과_일별_시계열_두_시트를_만든다():
+    prices_a = _prices([100.0, 110.0, 120.0])
+    prices_b = _prices([50.0, 55.0, 60.0])
+    strategy_a = Strategy(key="lump_sum", name="A", buy_plan=LumpSum(500_000))
+    strategy_b = Strategy(key="lump_sum", name="B", buy_plan=LumpSum(500_000))
+    daily, breakdown = run_portfolio_backtest(
+        {"A": prices_a, "B": prices_b}, capital=1_000_000, strategy_by_symbol={"A": strategy_a, "B": strategy_b}
+    )
+    summary = summarize_portfolio_result(daily, capital=1_000_000)
+
+    wb = build_portfolio_report(
+        symbols=["A", "B"],
+        capital=1_000_000,
+        start="2024-01-02",
+        end="2024-01-04",
+        generated_at_kst="2026-09-22 20:00:00",
+        summary=summary,
+        symbol_breakdown=breakdown,
+        daily=daily,
+    )
+
+    assert wb.sheetnames == ["포트폴리오 요약", "일별 시계열"]
+    ws = wb["포트폴리오 요약"]
+    assert ws["A1"].value == "포트폴리오 백테스트 결과 (A, B)"
+    header_row = [cell.value for cell in ws[7]]
+    assert header_row == ["종목", "총투자금", "실현손익", "평가손익", "합계"]
+    assert ws.cell(row=8, column=1).value == "A"
+    assert ws.cell(row=8, column=2).value == 500_000
+    assert ws.cell(row=10, column=1).value == "합계(포트폴리오)"
+    assert ws.cell(row=10, column=2).value == summary["총투자금"]
+
+    daily_ws = wb["일별 시계열"]
+    assert daily_ws.max_row == 1 + len(daily)
+    assert daily_ws.cell(row=2, column=2).value == 1_000_000  # 첫날 A+B 합쳐서 산 금액

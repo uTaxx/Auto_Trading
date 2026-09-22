@@ -14,6 +14,7 @@
     getFile: N8N_BASE + "/auto-trading-get-file",
     deleteResult: N8N_BASE + "/auto-trading-delete-result",
     runWalkforward: N8N_BASE + "/auto-trading-run-walkforward",
+    runPortfolioBacktest: N8N_BASE + "/auto-trading-run-portfolio-backtest",
   };
 
   // ── 0. 메뉴 탭 ─────────────────────────────────────────
@@ -1434,6 +1435,14 @@
       return;
     }
 
+    // 포트폴리오 백테스트 결과도 모양이 다르다("요약"이 아니라
+    // "포트폴리오_요약"과 "종목별_요약"을 쓴다). "포트폴리오_요약" 키로
+    // 구분한다(2026-09-22에 추가).
+    if (data["포트폴리오_요약"]) {
+      renderPortfolioResult(data);
+      return;
+    }
+
     // 전략 이름을 코드에 가까운 문자열 하나로 보여주면 읽기 어렵다는
     // 지적을 받아서, 매수방식·매수금액·매수빈도·이동평균조건·등락구간·
     // 익절선·손절선을 각각 칸으로 나눴다(summarize_result의
@@ -2659,6 +2668,77 @@
     }
   });
 
+  // 포트폴리오 백테스트 결과 화면. Walk-forward와 마찬가지로 "좋다/
+  // 나쁘다"를 판정하지 않고, 종목별로 실제 얼마가 배분됐는지·현금이
+  // 며칠이나 부족했는지를 그대로 보여준다.
+  function renderPortfolioResult(data) {
+    var summary = data["포트폴리오_요약"] || {};
+    var breakdown = data["종목별_요약"] || {};
+    var symbols = data["종목"] || [];
+    var capital = data["자본금"];
+    var series = data["포트폴리오_시계열"] || [];
+
+    var settingsLine = document.createElement("p");
+    settingsLine.className = "desc";
+    var settingsStrong = document.createElement("strong");
+    settingsStrong.textContent =
+      "포트폴리오: " + symbols.join(" → ") + " (현금 우선순위 순서) · 총자본 " + fmtNumber(capital) + "원";
+    settingsLine.appendChild(settingsStrong);
+    resultView.appendChild(settingsLine);
+
+    if (summary["현금부족일수"] > 0) {
+      var warnBox = document.createElement("div");
+      warnBox.className = "warn-box";
+      warnBox.textContent =
+        "현금이 모자라 설정값대로 못 산 날이 " + summary["현금부족일수"] + "일 있습니다(부족했던 금액의 합 " +
+        fmtNumber(summary["현금부족금액"]) + "원). 종목 순서를 바꾸거나 총자본을 늘리면 결과가 달라질 수 있습니다.";
+      resultView.appendChild(warnBox);
+    }
+
+    var statGrid = document.createElement("div");
+    statGrid.className = "stat-grid";
+    statGrid.appendChild(statTile("포트폴리오 수익률", fmtCell(summary["수익률"], "%"), resultLabelClass(summary["수익률"])));
+    statGrid.appendChild(statTile("최대낙폭", fmtCell(summary["최대낙폭"], "%")));
+    statGrid.appendChild(statTile("총투자금", fmtNumber(summary["총투자금"]) + "원"));
+    statGrid.appendChild(statTile("실현손익", fmtNumber(summary["실현손익"]) + "원", resultLabelClass(summary["실현손익"])));
+    statGrid.appendChild(statTile("평가손익", fmtNumber(summary["평가손익"]) + "원", resultLabelClass(summary["평가손익"])));
+    statGrid.appendChild(statTile("합계", fmtNumber(summary["합계"]) + "원", resultLabelClass(summary["합계"])));
+    statGrid.appendChild(statTile("현금부족일수", fmtCell(summary["현금부족일수"], "일")));
+    resultView.appendChild(statGrid);
+
+    if (series.length > 0) {
+      var chart = buildEquityCurveChart([
+        {
+          label: "포트폴리오 총자산",
+          color: "#2f6f65",
+          points: series.map(function (row) { return { date: row.trade_date, value: row.total_value }; }),
+        },
+      ]);
+      if (chart) resultView.appendChild(chart);
+    }
+
+    var breakdownWrap = document.createElement("div");
+    breakdownWrap.className = "table-scroll";
+    var breakdownTable = document.createElement("table");
+    breakdownTable.innerHTML =
+      "<thead><tr><th>종목</th><th>총투자금</th><th>실현손익</th><th>평가손익</th><th>합계</th></tr></thead>";
+    var breakdownBody = document.createElement("tbody");
+    symbols.forEach(function (symbol) {
+      var row = breakdown[symbol] || {};
+      var tr = document.createElement("tr");
+      tr.innerHTML =
+        "<td>" + symbol + "</td>" +
+        "<td>" + fmtNumber(row["총투자금"]) + "</td>" +
+        "<td>" + fmtNumber(row["실현손익"]) + "</td>" +
+        "<td>" + fmtNumber(row["평가손익"]) + "</td>" +
+        "<td>" + fmtNumber(row["합계"]) + "</td>";
+      breakdownBody.appendChild(tr);
+    });
+    breakdownTable.appendChild(breakdownBody);
+    breakdownWrap.appendChild(breakdownTable);
+    resultView.appendChild(breakdownWrap);
+  }
+
   // ── 6. Walk-forward 검증 ───────────────────────────────
   // "찾아볼 매수 방식과 변수 후보" 입력 칸은 최적 조건 찾기(5번)와
   // 똑같은 모양(STRATEGY_SEARCH_SCHEMAS)을 쓴다. 다만 이 화면의 다른
@@ -2914,6 +2994,237 @@
       })
       .catch(function (err) {
         setStatus(wfStatus, "err", "요청을 보내지 못했습니다: " + err.message);
+      });
+  });
+
+  // ── 7. 포트폴리오 백테스트 ──────────────────────────────
+  // 전략 비교(2번)의 단일 조건 입력 칸(STRATEGY_SCHEMAS, renderParamField)을
+  // 그대로 재사용하되, 종목마다 하나씩 붙여서 "이 종목은 이 조건 하나로
+  // 산다"는 짝을 만든다. 블록 순서가 그대로 같은 날 현금을 먼저 쓰는
+  // 우선순위다(그래서 전략 비교처럼 종목을 쉼표로 한 칸에 몰아넣지 않고
+  // 종목마다 블록을 따로 둔다).
+  var MAX_PORTFOLIO_SYMBOLS = 8;
+  var portfolioListEl = document.getElementById("portfolio-list");
+  var addPortfolioItemBtn = document.getElementById("add-portfolio-item");
+  var portfolioBlocks = []; // { id, el, symbolInput, typeSelect, tpInput, slInput }
+  var nextPortfolioBlockId = 1;
+
+  function addPortfolioItem() {
+    if (portfolioBlocks.length >= MAX_PORTFOLIO_SYMBOLS) return;
+    var blockId = "pf" + nextPortfolioBlockId++;
+    var el = document.createElement("div");
+    el.className = "strategy-block";
+
+    var head = document.createElement("div");
+    head.className = "row-head";
+
+    var symbolInput = document.createElement("input");
+    symbolInput.type = "text";
+    symbolInput.placeholder = "종목(예: SOXL)";
+    symbolInput.autocomplete = "off";
+    symbolInput.spellcheck = false;
+
+    var typeSelect = document.createElement("select");
+    Object.keys(STRATEGY_SCHEMAS).forEach(function (key) {
+      var o = document.createElement("option");
+      o.value = key;
+      o.textContent = STRATEGY_SCHEMAS[key].label;
+      typeSelect.appendChild(o);
+    });
+
+    var removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "remove-strategy";
+    removeBtn.textContent = "삭제";
+    removeBtn.addEventListener("click", function () {
+      el.remove();
+      portfolioBlocks = portfolioBlocks.filter(function (b) { return b.id !== blockId; });
+      addPortfolioItemBtn.disabled = portfolioBlocks.length >= MAX_PORTFOLIO_SYMBOLS;
+    });
+
+    head.appendChild(symbolInput);
+    head.appendChild(typeSelect);
+    head.appendChild(removeBtn);
+    el.appendChild(head);
+
+    var descEl = document.createElement("p");
+    descEl.className = "hint";
+    el.appendChild(descEl);
+
+    var paramsHost = document.createElement("div");
+    paramsHost.className = "param-grid";
+    el.appendChild(paramsHost);
+
+    var tpLabel = document.createElement("label");
+    tpLabel.textContent = "익절선(매수평균가 대비%) — 비워 두면 안 씀";
+    var tpInput = document.createElement("input");
+    tpInput.type = "number";
+    tpInput.step = "0.1";
+    tpLabel.appendChild(tpInput);
+    el.appendChild(tpLabel);
+
+    var slLabel = document.createElement("label");
+    slLabel.textContent = "손절선(매수평균가 대비%) — 비워 두면 안 씀";
+    var slInput = document.createElement("input");
+    slInput.type = "number";
+    slInput.step = "0.1";
+    slLabel.appendChild(slInput);
+    el.appendChild(slLabel);
+
+    function renderParams() {
+      paramsHost.innerHTML = "";
+      var schema = STRATEGY_SCHEMAS[typeSelect.value];
+      descEl.textContent = schema.description;
+      schema.params.forEach(function (param) {
+        paramsHost.appendChild(renderParamField(param, blockId));
+      });
+    }
+    typeSelect.addEventListener("change", renderParams);
+    renderParams();
+
+    portfolioListEl.appendChild(el);
+    portfolioBlocks.push({
+      id: blockId,
+      el: el,
+      symbolInput: symbolInput,
+      typeSelect: typeSelect,
+      tpInput: tpInput,
+      slInput: slInput,
+    });
+    addPortfolioItemBtn.disabled = portfolioBlocks.length >= MAX_PORTFOLIO_SYMBOLS;
+  }
+
+  addPortfolioItemBtn.addEventListener("click", addPortfolioItem);
+  // 시작할 때 두 개를 미리 만들어 둔다(빈 화면보다 낫다). 종목·조건은
+  // 사용자가 채운다.
+  addPortfolioItem();
+  addPortfolioItem();
+
+  document.getElementById("pf-start").value = yearsAgoStr(5);
+  document.getElementById("pf-end").value = todayStr();
+
+  function collectPortfolioItemConfig(block) {
+    var key = block.typeSelect.value;
+    var schema = STRATEGY_SCHEMAS[key];
+    var config = { key: key };
+
+    schema.params.forEach(function (param) {
+      var fieldId = "p-" + block.id + "-" + param.name;
+      if (param.type === "tiers") {
+        var host = document.getElementById(fieldId);
+        var tiers = [];
+        host.querySelectorAll(".tier-row").forEach(function (row) {
+          var inputs = row.querySelectorAll("input");
+          var threshold = parseFloat(inputs[0].value);
+          var amount = parseFloat(inputs[1].value);
+          if (!isNaN(threshold) && !isNaN(amount)) tiers.push([threshold, amount]);
+        });
+        config.tiers = tiers;
+        return;
+      }
+      var el = document.getElementById(fieldId);
+      if (!el) return;
+      if (param.type === "int") {
+        var n = parseInt(el.value, 10);
+        if (!isNaN(n)) config[param.name] = n;
+      } else {
+        config[param.name] = el.value;
+      }
+    });
+
+    var tp = parseFloat(block.tpInput.value);
+    if (!isNaN(tp)) config.take_profit_pct = tp / 100;
+
+    var sl = parseFloat(block.slInput.value);
+    if (!isNaN(sl)) config.stop_loss_pct = sl / 100;
+
+    return config;
+  }
+
+  var portfolioForm = document.getElementById("form-portfolio");
+  var pfStatus = document.getElementById("pf-status");
+  var portfolioPollTimer = null;
+  function setPortfolioPollTimer(t) { portfolioPollTimer = t; }
+
+  portfolioForm.addEventListener("submit", function (event) {
+    event.preventDefault();
+
+    var capital = parseFloat(document.getElementById("pf-capital").value);
+    var start = document.getElementById("pf-start").value;
+    var end = document.getElementById("pf-end").value;
+
+    if (!capital || !start || !end) {
+      setStatus(pfStatus, "err", "총자본·조회기간을 모두 입력하세요.");
+      return;
+    }
+    if (portfolioBlocks.length === 0) {
+      setStatus(pfStatus, "err", "종목을 하나 이상 추가하세요.");
+      return;
+    }
+
+    var symbols = [];
+    var strategies = {};
+    for (var i = 0; i < portfolioBlocks.length; i++) {
+      var block = portfolioBlocks[i];
+      var symbol = block.symbolInput.value.trim().toUpperCase();
+      if (!symbol) {
+        setStatus(pfStatus, "err", (i + 1) + "번째 종목 칸이 비어 있습니다.");
+        return;
+      }
+      if (strategies[symbol]) {
+        setStatus(pfStatus, "err", "종목 " + symbol + "이(가) 두 번 들어 있습니다. 하나만 남기세요.");
+        return;
+      }
+      symbols.push(symbol);
+      strategies[symbol] = collectPortfolioItemConfig(block);
+    }
+
+    var body = {
+      symbols: symbols.join(","),
+      strategies: JSON.stringify(strategies),
+      capital: capital,
+      start: start,
+      end: end,
+      upload: true,
+    };
+
+    if (portfolioPollTimer) {
+      clearTimeout(portfolioPollTimer);
+      portfolioPollTimer = null;
+    }
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+
+    setStatus(pfStatus, "", "요청을 보내는 중입니다...");
+    fetch(URLS.checkRun + "?workflow=run-portfolio-backtest.yml")
+      .then(function (res) { return res.ok ? res.json() : []; })
+      .catch(function () { return []; })
+      .then(function (beforeRuns) {
+        var previousRunId = beforeRuns && beforeRuns[0] ? beforeRuns[0].id : null;
+        return fetch(URLS.runPortfolioBacktest, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }).then(function (res) {
+          if (!res.ok) throw new Error("응답 코드 " + res.status);
+          setStatus(pfStatus, "", "요청을 보냈습니다(" + symbols.length + "개 종목). 완료되면 자동으로 알려 드립니다...");
+          portfolioPollTimer = setTimeout(function () {
+            pollWorkflowRun("run-portfolio-backtest.yml", pfStatus, previousRunId, 1, setPortfolioPollTimer, function (latest) {
+              if (latest.conclusion === "success") {
+                setStatus(pfStatus, "ok", "완료됐습니다(" + symbols.join(", ") + "). 비교 결과 탭에 자동으로 반영했습니다.");
+                notifyIfPermitted("포트폴리오 백테스트 완료", symbols.join(", ") + " 계산이 끝났습니다.");
+                refreshBtn.click();
+              } else {
+                setStatus(pfStatus, "err", "계산이 실패로 끝났습니다(" + latest.conclusion + "). GitHub Actions 로그를 확인해야 합니다.");
+                notifyIfPermitted("포트폴리오 백테스트 실패", symbols.join(", ") + " 계산이 실패했습니다.");
+              }
+            });
+          }, 5000);
+        });
+      })
+      .catch(function (err) {
+        setStatus(pfStatus, "err", "요청을 보내지 못했습니다: " + err.message);
       });
   });
 })();

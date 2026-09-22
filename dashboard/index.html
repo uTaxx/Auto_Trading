@@ -67,6 +67,7 @@
       <button type="button" class="subtab-btn" data-subtab="results" role="tab" aria-selected="false">비교 결과</button>
       <button type="button" class="subtab-btn" data-subtab="optimize" role="tab" aria-selected="false">최적 조건 찾기</button>
       <button type="button" class="subtab-btn" data-subtab="walkforward" role="tab" aria-selected="false">Walk-forward 검증</button>
+      <button type="button" class="subtab-btn" data-subtab="portfolio" role="tab" aria-selected="false">포트폴리오 백테스트</button>
     </nav>
 
     <div class="subtab-panel" data-subpanel="compare">
@@ -265,6 +266,40 @@
 
           <button type="submit" id="wf-submit">Walk-forward 검증 요청</button>
           <div class="status" id="wf-status" role="status" aria-live="polite"></div>
+        </form>
+      </section>
+    </div>
+
+    <div class="subtab-panel" data-subpanel="portfolio" hidden>
+      <section class="card" id="section-portfolio">
+        <h2>포트폴리오 백테스트</h2>
+        <p class="desc">전략 비교·Walk-forward는 종목마다 총자본을 전부 가진 것처럼
+          따로 계산합니다. 이 탭은 그 대신 총자본 하나를 아래 종목들이
+          같이 나눠 씁니다. 한 종목이 현금을 많이 쓰면 같은 날 다른
+          종목은 그만큼 못 삽니다. <strong>아래 목록에 적은 순서대로
+          같은 날 현금을 먼저 씁니다</strong>(뒤에 있을수록 현금이
+          부족해서 설정값대로 못 살 가능성이 큽니다). 종목마다 매수
+          방식·익절선·손절선을 다르게 줄 수 있습니다.</p>
+
+        <form id="form-portfolio">
+          <label>총자본(원, 아래 종목이 공유)
+            <input type="number" id="pf-capital" value="10000000" min="1" required>
+          </label>
+          <div class="grid-2">
+            <label>조회 시작일
+              <input type="date" id="pf-start" required>
+            </label>
+            <label>조회 종료일
+              <input type="date" id="pf-end" required>
+            </label>
+          </div>
+
+          <h3>종목별 전략 (현금 우선순위 순서, 최대 8개)</h3>
+          <div id="portfolio-list"></div>
+          <button type="button" id="add-portfolio-item">+ 종목 추가</button>
+
+          <button type="submit" id="pf-submit">포트폴리오 백테스트 요청</button>
+          <div class="status" id="pf-status" role="status" aria-live="polite"></div>
         </form>
       </section>
     </div>

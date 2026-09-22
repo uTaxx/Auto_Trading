@@ -1,0 +1,61 @@
+name: 포트폴리오 백테스트
+
+# 여러 종목이 총자본 하나를 나눠 쓰면서 같이 매매한다. run-backtest.yml은
+# 종목마다 총자본을 전부 가진 것처럼 따로 계산하는데, 이 워크플로는
+# 그 대신 한 종목이 현금을 많이 쓰면 같은 날 다른 종목은 그만큼 못 사는
+# 것까지 반영한다. 종목 순서(symbols에 적은 순서)가 같은 날 현금을
+# 먼저 쓰는 우선순위다.
+
+on:
+  workflow_dispatch:
+    inputs:
+      symbols:
+        description: "쉼표로 구분한 티커, 적은 순서대로 현금을 먼저 쓴다 (예: SOXL,TQQQ)"
+        required: true
+      strategies:
+        description: '종목별 전략 설정 JSON 객체(대시보드가 만들어 보낸다). 예: {"SOXL":{"key":"lump_sum"}}'
+        required: true
+      capital:
+        description: "포트폴리오 전체가 나눠 쓰는 총자본(원)"
+        required: true
+      start:
+        description: "조회 시작일 YYYY-MM-DD"
+        required: true
+      end:
+        description: "조회 종료일 YYYY-MM-DD"
+        required: true
+      upload:
+        description: "결과를 02_백테스트결과에 올린다"
+        type: boolean
+        default: true
+
+concurrency:
+  group: run-portfolio-backtest
+  cancel-in-progress: false
+
+jobs:
+  portfolio-backtest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt
+
+      - name: 포트폴리오 계산
+        env:
+          SYMBOLS: ${{ github.event.inputs.symbols }}
+          STRATEGIES: ${{ github.event.inputs.strategies }}
+          CAPITAL: ${{ github.event.inputs.capital }}
+          START: ${{ github.event.inputs.start }}
+          END: ${{ github.event.inputs.end }}
+          UPLOAD: ${{ github.event.inputs.upload }}
+          GDRIVE_SA_KEY_JSON: ${{ secrets.GDRIVE_SA_KEY_JSON }}
+          GDRIVE_IMPERSONATE_EMAIL: master@sondullab.com
+        run: |
+          ARGS=(--symbols "$SYMBOLS" --capital "$CAPITAL" --strategies "$STRATEGIES" --start "$START" --end "$END")
+          if [ "$UPLOAD" = "true" ]; then ARGS+=(--upload); fi
+          python scripts/run_portfolio_backtest.py "${ARGS[@]}"
