@@ -42,8 +42,8 @@ def test_현금이_넉넉하면_종목별로_따로_계산한_것과_같다():
 def test_현금이_모자라면_먼저_적힌_종목이_우선_쓴다():
     prices_a = _prices([10.0, 10.0])
     prices_b = _prices([10.0, 10.0])
-    strategy_a = Strategy(key="dca", name="A", buy_plan=PeriodicDCA(amount=80.0, interval_days=1))
-    strategy_b = Strategy(key="dca", name="B", buy_plan=PeriodicDCA(amount=80.0, interval_days=1))
+    strategy_a = Strategy(key="dca", name="A", buy_plan=PeriodicDCA(amount=80.0))
+    strategy_b = Strategy(key="dca", name="B", buy_plan=PeriodicDCA(amount=80.0))
 
     daily, breakdown = run_portfolio_backtest(
         {"A": prices_a, "B": prices_b}, capital=100.0, strategy_by_symbol={"A": strategy_a, "B": strategy_b}
@@ -68,7 +68,7 @@ def test_같은_날_판_돈을_그날_다른_종목이_바로_쓴다():
     prices_a = _prices([100.0, 115.0])
     prices_b = _prices([50.0, 50.0])
     strategy_a = Strategy(key="lump_sum", name="A", buy_plan=LumpSum(100.0), take_profit_pct=0.1)
-    strategy_b = Strategy(key="dca", name="B", buy_plan=PeriodicDCA(amount=115.0, interval_days=1))
+    strategy_b = Strategy(key="dca", name="B", buy_plan=PeriodicDCA(amount=115.0))
 
     daily, breakdown = run_portfolio_backtest(
         {"A": prices_a, "B": prices_b}, capital=100.0, strategy_by_symbol={"A": strategy_a, "B": strategy_b}
@@ -93,7 +93,7 @@ def test_종목마다_상장일이_달라도_계산된다():
     prices_a = _prices([100.0, 100.0], start=date(2024, 1, 2))
     prices_b = _prices([50.0], start=date(2024, 1, 3))
     strategy_a = Strategy(key="lump_sum", name="A", buy_plan=LumpSum(0.0))  # 안 사는 전략(계산만 확인)
-    strategy_b = Strategy(key="dca", name="B", buy_plan=PeriodicDCA(amount=10.0, interval_days=1))
+    strategy_b = Strategy(key="dca", name="B", buy_plan=PeriodicDCA(amount=10.0))
 
     daily, breakdown = run_portfolio_backtest(
         {"A": prices_a, "B": prices_b}, capital=100.0, strategy_by_symbol={"A": strategy_a, "B": strategy_b}

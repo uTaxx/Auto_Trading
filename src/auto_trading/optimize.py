@@ -70,7 +70,6 @@ STRATEGY_SEARCH_SCHEMAS: dict[str, dict[str, Any]] = {
         "label": "적립식 매수",
         "params": [
             {"name": "amount", "label": "회당 매수 금액 후보(원)", "type": "int", "suggested": [50000, 100000, 200000]},
-            {"name": "interval_days", "label": "매수빈도 후보(일수)", "type": "int", "suggested": [1, 5, 10]},
             *_EXIT_PARAMS,
         ],
     },
@@ -83,31 +82,13 @@ STRATEGY_SEARCH_SCHEMAS: dict[str, dict[str, Any]] = {
                 "label": "이동평균선 아래일 때 매수금액 후보(원) — 비워 두면 이 구간엔 안 삼",
                 "type": "int",
                 "optional": True,
-                "pair": "below",
                 "suggested": [50000, 100000, 200000],
-            },
-            {
-                "name": "below_interval_days",
-                "label": "이동평균선 아래일 때 매수빈도 후보(일수)",
-                "type": "int",
-                "optional": True,
-                "pair": "below",
-                "suggested": [1, 5, 10],
             },
             {
                 "name": "above_amount",
                 "label": "이동평균선 위일 때 매수금액 후보(원) — 비워 두면 이 구간엔 안 삼",
                 "type": "int",
                 "optional": True,
-                "pair": "above",
-                "suggested": [],
-            },
-            {
-                "name": "above_interval_days",
-                "label": "이동평균선 위일 때 매수빈도 후보(일수)",
-                "type": "int",
-                "optional": True,
-                "pair": "above",
                 "suggested": [],
             },
             *_EXIT_PARAMS,
@@ -116,7 +97,6 @@ STRATEGY_SEARCH_SCHEMAS: dict[str, dict[str, Any]] = {
     "drop_based": {
         "label": "등락률 기준 비중 조절 매수(구간 하나로 단순화)",
         "params": [
-            {"name": "interval_days", "label": "평가 빈도 후보(거래일)", "type": "int", "suggested": [1, 5, 10]},
             {"name": "lookback_days", "label": "평가 기준일 후보(몇일전 시세대비)", "type": "int", "suggested": [1, 5, 10]},
             {"name": "threshold_pct", "label": "등락률 임계값 후보(%)", "type": "float", "suggested": [-3, -5, -10]},
             {"name": "amount", "label": "그 구간 매수 금액 후보(원)", "type": "int", "suggested": [100000, 200000, 300000]},
@@ -145,9 +125,11 @@ def _combinations(params: list[dict], values: dict[str, list]) -> list[dict]:
 
 
 def _check_pairs(schema: dict, combo: dict, key: str) -> None:
-    """dca_ma의 아래/위 매수금액·매수빈도처럼 "pair"로 묶인 선택값은 둘
-    다 있거나 둘 다 없어야 한다. 하나만 있으면 build_strategy가 나중에
-    막긴 하지만, 계산을 시작하기 전에 바로 알려주는 편이 낫다."""
+    """같은 "pair" 이름으로 묶인 선택값은 둘 다 있거나 둘 다 없어야
+    한다. 하나만 있으면 build_strategy가 나중에 막긴 하지만, 계산을
+    시작하기 전에 바로 알려주는 편이 낫다(지금 등록된 전략 중에는
+    "pair"를 쓰는 것이 없어서 항상 통과한다. 나중에 짝을 이루는 선택값이
+    생기면 쓴다)."""
     pairs: dict[str, list[str]] = {}
     for p in schema["params"]:
         pair_name = p.get("pair")

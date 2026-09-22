@@ -55,9 +55,9 @@ def run_portfolio_backtest(
     if not all_dates:
         raise ValueError("계산할 시세가 없습니다.")
 
-    # 종목마다 "그 종목 안에서 몇 번째 거래일인가"를 따로 센다. PeriodicDCA
-    # 같은 전략은 day_index % interval_days로 매수일을 정하는데, 종목마다
-    # 상장일이 다르면 같은 달력 날짜라도 종목별 day_index가 달라야 한다.
+    # 종목마다 "그 종목 안에서 몇 번째 거래일인가"를 따로 센다. LumpSum
+    # 같은 전략은 day_index == 0인 날에만 사는데, 종목마다 상장일이
+    # 다르면 그 "0일째"가 종목마다 다른 달력 날짜여야 한다.
     day_index_by_symbol = {s: {d: i for i, d in enumerate(prices_sorted[s]["trade_date"])} for s in symbols}
     row_by_date_symbol = {s: prices_sorted[s].set_index("trade_date") for s in symbols}
 

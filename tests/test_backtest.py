@@ -41,13 +41,12 @@ def test_일회_매수는_첫날에만_산다():
     assert result.iloc[0]["shares"] == pytest.approx(10_000.0)
 
 
-def test_적립식_매수는_간격마다_산다():
+def test_적립식_매수는_매일_산다():
     prices = _prices([100.0] * 10)
-    strategy = Strategy(key="dca", name="적립식", buy_plan=PeriodicDCA(amount=100_000, interval_days=3))
-    result = run_backtest(prices, capital=1_000_000, strategy=strategy)
+    strategy = Strategy(key="dca", name="적립식", buy_plan=PeriodicDCA(amount=100_000))
+    result = run_backtest(prices, capital=100_000_000, strategy=strategy)
 
-    # 0, 3, 6, 9일째에 산다 (4번)
-    assert result.iloc[-1]["invested_cumulative"] == pytest.approx(400_000)
+    assert result.iloc[-1]["invested_cumulative"] == pytest.approx(1_000_000)
 
 
 def test_이동평균_아래일_때만_산다():
@@ -58,7 +57,7 @@ def test_이동평균_아래일_때만_산다():
     strategy = Strategy(
         key="dca_ma",
         name="이평 아래",
-        buy_plan=MovingAverageDCA(ma_window=60, below_amount=100_000, below_interval_days=1),
+        buy_plan=MovingAverageDCA(ma_window=60, below_amount=100_000),
     )
     result = run_backtest(prices, capital=10_000_000, strategy=strategy)
 
@@ -74,7 +73,7 @@ def test_이동평균_위일_때만_산다():
     strategy = Strategy(
         key="dca_ma",
         name="이평 위",
-        buy_plan=MovingAverageDCA(ma_window=60, above_amount=50_000, above_interval_days=1),
+        buy_plan=MovingAverageDCA(ma_window=60, above_amount=50_000),
     )
     result = run_backtest(prices, capital=10_000_000, strategy=strategy)
 
@@ -93,9 +92,7 @@ def test_이동평균_아래_위를_다른_금액으로_동시에_살_수_있다
         buy_plan=MovingAverageDCA(
             ma_window=60,
             below_amount=100_000,
-            below_interval_days=1,
             above_amount=50_000,
-            above_interval_days=1,
         ),
     )
     result = run_backtest(prices, capital=10_000_000, strategy=strategy)
@@ -113,7 +110,7 @@ def test_하락폭이_클수록_많이_산다():
     strategy = Strategy(
         key="drop",
         name="하락률",
-        buy_plan=ConditionalDCA(tiers=[(-0.03, 100_000), (-0.05, 200_000), (-0.08, 300_000)], lookback_days=21, interval_days=1),
+        buy_plan=ConditionalDCA(tiers=[(-0.03, 100_000), (-0.05, 200_000), (-0.08, 300_000)], lookback_days=21),
     )
     result = run_backtest(prices, capital=10_000_000, strategy=strategy)
     assert result.iloc[-1]["invested_cumulative"] == pytest.approx(100_000)
@@ -129,7 +126,7 @@ def test_떨어지지_않으면_안_산다():
     strategy = Strategy(
         key="drop",
         name="하락률",
-        buy_plan=ConditionalDCA(tiers=[(-0.03, 100_000)], lookback_days=21, interval_days=1),
+        buy_plan=ConditionalDCA(tiers=[(-0.03, 100_000)], lookback_days=21),
     )
     result = run_backtest(prices, capital=10_000_000, strategy=strategy)
     assert result.iloc[-1]["invested_cumulative"] == 0.0
@@ -150,7 +147,7 @@ def test_매도_후에도_다음_매수가_이어진다():
     closes = [100.0, 150.0] + [150.0] * 3  # 하루 만에 +50% 익절
     prices = _prices(closes)
     strategy = Strategy(
-        key="dca_tp", name="적립식+익절", buy_plan=PeriodicDCA(amount=200_000, interval_days=1), take_profit_pct=0.2
+        key="dca_tp", name="적립식+익절", buy_plan=PeriodicDCA(amount=200_000), take_profit_pct=0.2
     )
     result = run_backtest(prices, capital=2_000_000, strategy=strategy)
 
@@ -162,7 +159,7 @@ def test_매도_후에도_다음_매수가_이어진다():
 def test_총자산은_항상_원금과_손익의_합이다():
     prices = _prices([100.0, 105.0, 95.0, 110.0, 90.0, 120.0])
     strategy = build_strategy(
-        {"key": "drop_based", "interval_days": 1, "lookback_days": 1, "tiers": [[-3, 100_000]], "take_profit_pct": 0.1},
+        {"key": "drop_based", "lookback_days": 1, "tiers": [[-3, 100_000]], "take_profit_pct": 0.1},
         capital=1_000_000,
     )
     result = run_backtest(prices, capital=1_000_000, strategy=strategy)
@@ -183,7 +180,7 @@ def test_현금이_모자라면_그날_부족금액이_찍힌다():
     # 자본 300, 매일 100씩 사는 적립식. 사흘치(300)를 사고 나면
     # 나흘째부터 사려는 100 중 현금이 없어서 하나도 못 산다.
     prices = _prices([100.0] * 5)
-    strategy = Strategy(key="dca", name="적립식", buy_plan=PeriodicDCA(amount=100.0, interval_days=1))
+    strategy = Strategy(key="dca", name="적립식", buy_plan=PeriodicDCA(amount=100.0))
     result = run_backtest(prices, capital=300.0, strategy=strategy)
 
     assert result.iloc[0]["buy_shortfall"] == 0.0
@@ -196,7 +193,7 @@ def test_현금이_모자라면_그날_부족금액이_찍힌다():
 
 def test_summarize_result은_현금부족일수와_금액을_더한다():
     prices = _prices([100.0] * 5)
-    strategy = Strategy(key="dca", name="적립식", buy_plan=PeriodicDCA(amount=100.0, interval_days=1))
+    strategy = Strategy(key="dca", name="적립식", buy_plan=PeriodicDCA(amount=100.0))
     result = run_backtest(prices, capital=300.0, strategy=strategy)
     row = summarize_result("TEST", strategy, 300.0, result)
 
@@ -225,22 +222,17 @@ def test_일회매수는_추가_입력값이_없어도_만들어진다():
 
 def test_적립식_매수는_필요한_값을_안_주면_오류를_낸다():
     with pytest.raises(ValueError, match="amount"):
-        build_strategy({"key": "dca", "interval_days": 21}, capital=1_000_000)
+        build_strategy({"key": "dca"}, capital=1_000_000)
 
 
 def test_이동평균_전략은_필요한_값을_안_주면_오류를_낸다():
     with pytest.raises(ValueError, match="ma_window"):
-        build_strategy({"key": "dca_ma", "below_amount": 100_000, "below_interval_days": 21}, capital=1_000_000)
+        build_strategy({"key": "dca_ma", "below_amount": 100_000}, capital=1_000_000)
 
 
 def test_이동평균_전략은_아래_위_둘_다_안_주면_오류를_낸다():
     with pytest.raises(ValueError, match="최소 한쪽"):
         build_strategy({"key": "dca_ma", "ma_window": 60}, capital=1_000_000)
-
-
-def test_이동평균_전략은_금액만_주고_빈도를_안_주면_오류를_낸다():
-    with pytest.raises(ValueError, match="같이 넣어야"):
-        build_strategy({"key": "dca_ma", "ma_window": 60, "below_amount": 100_000}, capital=1_000_000)
 
 
 def test_이동평균_전략은_아래_위를_따로_넣을_수_있다():
@@ -249,26 +241,22 @@ def test_이동평균_전략은_아래_위를_따로_넣을_수_있다():
             "key": "dca_ma",
             "ma_window": 60,
             "below_amount": 100_000,
-            "below_interval_days": 1,
             "above_amount": 50_000,
-            "above_interval_days": 5,
         },
         capital=1_000_000,
     )
     assert strategy.buy_plan.below_amount == 100_000
-    assert strategy.buy_plan.below_interval_days == 1
     assert strategy.buy_plan.above_amount == 50_000
-    assert strategy.buy_plan.above_interval_days == 5
 
 
 def test_하락률_전략은_구간을_안_주면_오류를_낸다():
     with pytest.raises(ValueError, match="tiers"):
-        build_strategy({"key": "drop_based", "interval_days": 21, "lookback_days": 20}, capital=1_000_000)
+        build_strategy({"key": "drop_based", "lookback_days": 20}, capital=1_000_000)
 
 
 def test_하락률_전략의_퍼센트_입력은_비율로_바뀐다():
     strategy = build_strategy(
-        {"key": "drop_based", "interval_days": 21, "lookback_days": 20, "tiers": [[-3, 100_000]]},
+        {"key": "drop_based", "lookback_days": 20, "tiers": [[-3, 100_000]]},
         capital=1_000_000,
     )
     assert strategy.buy_plan.tiers == [(-0.03, 100_000.0)]
@@ -280,7 +268,7 @@ def test_모르는_전략_키는_오류를_낸다():
 
 
 def test_적립식_매수_금액은_입력한_값을_그대로_쓴다():
-    strategy = build_strategy({"key": "dca", "amount": 300_000, "interval_days": 21}, capital=1_200_000)
+    strategy = build_strategy({"key": "dca", "amount": 300_000}, capital=1_200_000)
     assert strategy.buy_plan.amount == 300_000
 
 
@@ -324,7 +312,7 @@ def test_상승_구간에도_매수_비중을_넣을_수_있다():
     strategy = Strategy(
         key="drop",
         name="등락률",
-        buy_plan=ConditionalDCA(tiers=[(0.05, 150_000)], lookback_days=21, interval_days=1),
+        buy_plan=ConditionalDCA(tiers=[(0.05, 150_000)], lookback_days=21),
     )
     result = run_backtest(prices, capital=10_000_000, strategy=strategy)
     assert result.iloc[-1]["invested_cumulative"] == pytest.approx(150_000)
@@ -334,19 +322,15 @@ def test_전략_설명은_매수방식별로_읽을_수_있는_칸을_만든다(
     lump_sum = describe_strategy(Strategy(key="lump_sum", name="일회", buy_plan=LumpSum(1_000_000)))
     assert lump_sum["매수방식"] == "일회 매수"
     assert lump_sum["매수금액"] == 1_000_000
-    assert lump_sum["매수빈도"] is None
 
-    dca = describe_strategy(
-        Strategy(key="dca", name="적립", buy_plan=PeriodicDCA(amount=100_000, interval_days=5))
-    )
+    dca = describe_strategy(Strategy(key="dca", name="적립", buy_plan=PeriodicDCA(amount=100_000)))
     assert dca["매수금액"] == 100_000
-    assert dca["매수빈도"] == 5
 
     dca_ma = describe_strategy(
         Strategy(
             key="dca_ma",
             name="이평",
-            buy_plan=MovingAverageDCA(ma_window=60, below_amount=100_000, below_interval_days=1),
+            buy_plan=MovingAverageDCA(ma_window=60, below_amount=100_000),
             take_profit_pct=0.1,
         )
     )
@@ -360,7 +344,7 @@ def test_전략_설명은_매수방식별로_읽을_수_있는_칸을_만든다(
         Strategy(
             key="drop_based",
             name="등락",
-            buy_plan=ConditionalDCA(tiers=[(-0.05, 120_000)], lookback_days=1, interval_days=1),
+            buy_plan=ConditionalDCA(tiers=[(-0.05, 120_000)], lookback_days=1),
         )
     )
     assert "-5.0%" in drop_based["등락구간"]
@@ -369,9 +353,8 @@ def test_전략_설명은_매수방식별로_읽을_수_있는_칸을_만든다(
 
 def test_요약에_전략_설명_칸이_같이_들어간다():
     prices = _prices([100.0, 105.0, 110.0])
-    strategy = Strategy(key="dca", name="적립", buy_plan=PeriodicDCA(amount=100_000, interval_days=1))
+    strategy = Strategy(key="dca", name="적립", buy_plan=PeriodicDCA(amount=100_000))
     result = run_backtest(prices, capital=1_000_000, strategy=strategy)
     row = summarize_result("SPY", strategy, 1_000_000, result)
     assert row["매수방식"] == "적립식 매수"
     assert row["매수금액"] == 100_000
-    assert row["매수빈도"] == 1

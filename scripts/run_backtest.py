@@ -56,7 +56,7 @@ def _parse_args() -> argparse.Namespace:
         help=(
             "비교할 전략 설정 JSON 배열(최대 5개). 각 항목은 key와 그 전략에 "
             '필요한 값을 담는다. 예: [{"key":"lump_sum"},'
-            '{"key":"dca","label":"매일 적립","amount":100000,"interval_days":1,'
+            '{"key":"dca","label":"매일 적립","amount":100000,'
             '"take_profit_pct":0.3,"stop_loss_pct":0.1}]'
         ),
     )

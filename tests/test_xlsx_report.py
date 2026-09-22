@@ -31,7 +31,6 @@ def test_종목_보고서는_요약과_일별_시계열_두_시트를_만든다(
         "strategy_name": "일회 매수",
         "매수방식": "일회 매수",
         "매수금액": 1_000_000,
-        "매수빈도": None,
         "이동평균조건": None,
         "등락구간": None,
         "익절선": None,
@@ -62,16 +61,16 @@ def test_종목_보고서는_요약과_일별_시계열_두_시트를_만든다(
     assert summary_ws["A1"].value == "SPY - 일회 매수 분석 결과"
     header_row = [cell.value for cell in summary_ws[6]]
     assert header_row == [
-        "종목", "매수방식", "매수금액", "매수빈도", "이동평균조건", "등락구간", "익절선", "손절선",
+        "종목", "매수방식", "매수금액", "이동평균조건", "등락구간", "익절선", "손절선",
         "총투자금", "실현손익", "평가손익", "합계", "수익률", "최대낙폭", "현금부족일수",
     ]
     assert summary_ws.cell(row=7, column=1).value == "SPY"
     assert summary_ws.cell(row=7, column=2).value == "일회 매수"
     assert summary_ws.cell(row=7, column=3).value == 1_000_000
-    assert summary_ws.cell(row=7, column=13).value == 0.2  # 20% -> 0.2 (퍼센트 서식으로 표시)
-    assert summary_ws.cell(row=7, column=13).number_format == "0.00%"
-    assert summary_ws.cell(row=7, column=14).value == -0.05
-    assert summary_ws.cell(row=7, column=15).value == 0
+    assert summary_ws.cell(row=7, column=12).value == 0.2  # 20% -> 0.2 (퍼센트 서식으로 표시)
+    assert summary_ws.cell(row=7, column=12).number_format == "0.00%"
+    assert summary_ws.cell(row=7, column=13).value == -0.05
+    assert summary_ws.cell(row=7, column=14).value == 0
 
     daily_ws = wb["일별 시계열"]
     assert [cell.value for cell in daily_ws[1]][:6] == [
@@ -110,18 +109,18 @@ def test_비교_보고서는_수익률_부호에_따라_글자색이_다르다()
     assert ws["A1"].value == "종목 비교 결과 (SPY, QQQ)"
     header_row = [cell.value for cell in ws[6]]
     assert header_row == [
-        "종목", "매수방식", "매수금액", "매수빈도", "이동평균조건", "등락구간", "익절선", "손절선",
+        "종목", "매수방식", "매수금액", "이동평균조건", "등락구간", "익절선", "손절선",
         "총투자금", "실현손익", "평가손익", "합계", "수익률", "최대낙폭", "현금부족일수",
     ]
-    positive_cell = ws.cell(row=7, column=13)
-    negative_cell = ws.cell(row=8, column=13)
+    positive_cell = ws.cell(row=7, column=12)
+    negative_cell = ws.cell(row=8, column=12)
     assert positive_cell.value == 0.2
     assert negative_cell.value == -0.05
     assert positive_cell.font.color.rgb.endswith("1B7A43")
     assert negative_cell.font.color.rgb.endswith("B5502E")
-    assert ws.cell(row=7, column=15).value == 0
-    assert ws.cell(row=8, column=15).value == 3
-    assert ws.cell(row=8, column=15).font.color.rgb.endswith("B5502E")  # 부족한 날이 있으면 강조
+    assert ws.cell(row=7, column=14).value == 0
+    assert ws.cell(row=8, column=14).value == 3
+    assert ws.cell(row=8, column=14).font.color.rgb.endswith("B5502E")  # 부족한 날이 있으면 강조
 
 
 def test_포트폴리오_보고서는_요약과_일별_시계열_두_시트를_만든다():

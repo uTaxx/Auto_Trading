@@ -51,28 +51,24 @@
     lump_sum: { label: "일회 매수", description: "첫날 전체 자본으로 한 번에 산다.", params: [] },
     dca: {
       label: "적립식 매수",
-      description: "정해진 금액을 일정 간격마다 산다.",
+      description: "정해진 금액을 매일 산다.",
       params: [
         { name: "amount", label: "회당 매수 금액(원)", type: "int", suggested: 100000 },
-        { name: "interval_days", label: "매수빈도(일수, 1이면 매일)", type: "int", suggested: 1 },
       ],
     },
     dca_ma: {
       label: "적립식 매수 + 이동평균선 조건",
-      description: "이동평균선 아래일 때와 위일 때 매수금액·매수빈도를 각각 따로 정한다. 한쪽만 채워도 되고 둘 다 채워도 된다.",
+      description: "이동평균선 아래일 때와 위일 때 매수금액을 각각 따로 정한다. 한쪽만 채워도 되고 둘 다 채워도 된다. 조건을 만족하는 날마다 산다.",
       params: [
         { name: "ma_window", label: "이동평균 기간(거래일)", type: "int", suggested: 60 },
-        { name: "below_amount", label: "이동평균선 아래일 때 매수금액(원) — 비워 두면 이 구간엔 안 삼", type: "int", optional: true, pair: "below", suggested: 100000 },
-        { name: "below_interval_days", label: "이동평균선 아래일 때 매수빈도(일수)", type: "int", optional: true, pair: "below", suggested: 1 },
-        { name: "above_amount", label: "이동평균선 위일 때 매수금액(원) — 비워 두면 이 구간엔 안 삼", type: "int", optional: true, pair: "above" },
-        { name: "above_interval_days", label: "이동평균선 위일 때 매수빈도(일수)", type: "int", optional: true, pair: "above" },
+        { name: "below_amount", label: "이동평균선 아래일 때 매수금액(원) — 비워 두면 이 구간엔 안 삼", type: "int", optional: true, suggested: 100000 },
+        { name: "above_amount", label: "이동평균선 위일 때 매수금액(원) — 비워 두면 이 구간엔 안 삼", type: "int", optional: true },
       ],
     },
     drop_based: {
       label: "등락률 기준 비중 조절 매수",
-      description: "최근 평균 주가 대비 등락률 구간마다 매수 금액을 다르게 정한다. 하락 구간뿐 아니라 상승 구간도 넣을 수 있다.",
+      description: "최근 평균 주가 대비 등락률 구간마다 매수 금액을 다르게 정한다(매일 확인한다). 하락 구간뿐 아니라 상승 구간도 넣을 수 있다.",
       params: [
-        { name: "interval_days", label: "평가 빈도(거래일, 1이면 매일)", type: "int", suggested: 1 },
         { name: "lookback_days", label: "평가 기준일(몇일전 시세대비, 1이면 전일 대비)", type: "int", suggested: 1 },
         {
           name: "tiers",
@@ -106,23 +102,19 @@
       label: "적립식 매수",
       params: [
         { name: "amount", label: "회당 매수 금액 후보(원, 쉼표로 구분)", type: "int_list", suggested: "50000, 100000, 200000" },
-        { name: "interval_days", label: "매수빈도 후보(일수, 쉼표로 구분)", type: "int_list", suggested: "1, 5, 10" },
       ].concat(EXIT_PARAMS),
     },
     dca_ma: {
       label: "적립식 매수 + 이동평균선 조건",
       params: [
         { name: "ma_window", label: "이동평균 기간 후보(거래일, 쉼표로 구분)", type: "int_list", suggested: "20, 60, 120" },
-        { name: "below_amount", label: "이동평균선 아래일 때 매수금액 후보(원, 쉼표로 구분) — 비워 두면 이 구간엔 안 삼", type: "int_list", optional: true, pair: "below", suggested: "50000, 100000, 200000" },
-        { name: "below_interval_days", label: "이동평균선 아래일 때 매수빈도 후보(일수, 쉼표로 구분)", type: "int_list", optional: true, pair: "below", suggested: "1, 5, 10" },
-        { name: "above_amount", label: "이동평균선 위일 때 매수금액 후보(원, 쉼표로 구분) — 비워 두면 이 구간엔 안 삼", type: "int_list", optional: true, pair: "above", suggested: "" },
-        { name: "above_interval_days", label: "이동평균선 위일 때 매수빈도 후보(일수, 쉼표로 구분)", type: "int_list", optional: true, pair: "above", suggested: "" },
+        { name: "below_amount", label: "이동평균선 아래일 때 매수금액 후보(원, 쉼표로 구분) — 비워 두면 이 구간엔 안 삼", type: "int_list", optional: true, suggested: "50000, 100000, 200000" },
+        { name: "above_amount", label: "이동평균선 위일 때 매수금액 후보(원, 쉼표로 구분) — 비워 두면 이 구간엔 안 삼", type: "int_list", optional: true, suggested: "" },
       ].concat(EXIT_PARAMS),
     },
     drop_based: {
       label: "등락률 기준 비중 조절 매수(구간 하나로 단순화)",
       params: [
-        { name: "interval_days", label: "평가 빈도 후보(거래일, 쉼표로 구분)", type: "int_list", suggested: "1, 5, 10" },
         { name: "lookback_days", label: "평가 기준일 후보(몇일전 시세대비, 쉼표로 구분)", type: "int_list", suggested: "1, 5, 10" },
         { name: "threshold_pct", label: "등락률 임계값 후보(%, 쉼표로 구분)", type: "float_list", suggested: "-3, -5, -10" },
         { name: "amount", label: "그 구간 매수 금액 후보(원, 쉼표로 구분)", type: "int_list", suggested: "100000, 200000, 300000" },
@@ -132,11 +124,11 @@
   var OPT_MAX_COMBINATIONS = 200;
 
   // ── 공통 유틸 ──────────────────────────────────────────
-  // dca_ma의 "이동평균선 아래일 때 매수금액/매수빈도"처럼 짝을 이루는
-  // 선택값은 둘 다 채우거나 둘 다 비워야 한다. schema.params에서 같은
-  // pair 이름을 가진 항목끼리 묶어서 확인한다. 문제가 없으면 null을
-  // 돌려준다. contextLabel은 오류 문구 앞에 붙일 "몇 번째 전략(이름)"
-  // 같은 설명이다.
+  // 같은 "pair" 이름을 가진 선택값은 둘 다 채우거나 둘 다 비워야
+  // 한다. schema.params에서 같은 pair 이름을 가진 항목끼리 묶어서
+  // 확인한다(지금 등록된 전략 중에는 pair를 쓰는 것이 없어서 항상
+  // 통과한다). 문제가 없으면 null을 돌려준다. contextLabel은 오류
+  // 문구 앞에 붙일 "몇 번째 전략(이름)" 같은 설명이다.
   function checkParamPairs(schema, cfg, contextLabel) {
     var pairs = {};
     schema.params.forEach(function (p) {
@@ -1228,7 +1220,7 @@
         return;
       }
       if (cfg.key === "dca_ma" && cfg.below_amount === undefined && cfg.above_amount === undefined) {
-        setStatus(btStatus, "err", (i + 1) + "번째 전략(" + schema.label + ")은 이동평균선 아래·위 중 최소 한쪽은 매수금액과 매수빈도를 채워야 합니다.");
+        setStatus(btStatus, "err", (i + 1) + "번째 전략(" + schema.label + ")은 이동평균선 아래·위 중 최소 한쪽은 매수금액을 채워야 합니다.");
         return;
       }
     }
@@ -1444,17 +1436,17 @@
     }
 
     // 전략 이름을 코드에 가까운 문자열 하나로 보여주면 읽기 어렵다는
-    // 지적을 받아서, 매수방식·매수금액·매수빈도·이동평균조건·등락구간·
-    // 익절선·손절선을 각각 칸으로 나눴다(summarize_result의
-    // describe_strategy가 만든 값). 칸이 많아 폭이 좁은 화면에서는
-    // 가로로 스크롤하게 wrap을 둔다.
+    // 지적을 받아서, 매수방식·매수금액·이동평균조건·등락구간·익절선·
+    // 손절선을 각각 칸으로 나눴다(summarize_result의 describe_strategy가
+    // 만든 값). 칸이 많아 폭이 좁은 화면에서는 가로로 스크롤하게 wrap을
+    // 둔다.
     var wrap = document.createElement("div");
     wrap.className = "table-scroll";
 
     var table = document.createElement("table");
     var thead = document.createElement("thead");
     thead.innerHTML =
-      "<tr><th>종목</th><th>매수방식</th><th>매수금액</th><th>매수빈도</th><th>이동평균조건</th>" +
+      "<tr><th>종목</th><th>매수방식</th><th>매수금액</th><th>이동평균조건</th>" +
       "<th>등락구간</th><th>익절선</th><th>손절선</th><th>총투자금</th><th>실현손익</th>" +
       "<th>평가손익</th><th>합계</th><th>수익률</th><th>최대낙폭</th><th>현금부족일수</th><th>엑셀</th></tr>";
     table.appendChild(thead);
@@ -1465,7 +1457,6 @@
         "<td>" + row.symbol + "</td>" +
         "<td>" + fmtCell(row["매수방식"]) + "</td>" +
         "<td>" + (row["매수금액"] !== null && row["매수금액"] !== undefined ? fmtNumber(row["매수금액"]) : "-") + "</td>" +
-        "<td>" + fmtCell(row["매수빈도"], "일") + "</td>" +
         "<td>" + fmtCell(row["이동평균조건"]) + "</td>" +
         "<td>" + fmtCell(row["등락구간"]) + "</td>" +
         "<td>" + fmtCell(row["익절선"]) + "</td>" +
@@ -2119,9 +2110,9 @@
         list = parseFloatListText(field.input.value);
       }
 
-      // 선택값(익절·손절, dca_ma의 아래/위 매수금액·매수빈도)은 비워
-      // 두면 그 조건 없이 계산하는 조합 하나로 보고, 조합 수도 늘리지
-      // 않는다. 다른 변수는 비우면 오류다.
+      // 선택값(익절·손절, dca_ma의 아래/위 매수금액)은 비워 두면 그
+      // 조건 없이 계산하는 조합 하나로 보고, 조합 수도 늘리지 않는다.
+      // 다른 변수는 비우면 오류다.
       if (param.optional) {
         if (list.length > 0) {
           values[param.name] = list;
@@ -2139,7 +2130,7 @@
     var pairError = checkParamPairs(schema, values, schema.label);
     if (pairError) return { error: pairError };
     if (key === "dca_ma" && values.below_amount === undefined && values.above_amount === undefined) {
-      return { error: schema.label + "은 이동평균선 아래·위 중 최소 한쪽은 매수금액과 매수빈도를 채워야 합니다." };
+      return { error: schema.label + "은 이동평균선 아래·위 중 최소 한쪽은 매수금액을 채워야 합니다." };
     }
 
     return { values: values, count: count };
@@ -2627,14 +2618,14 @@
     lines.push("적어 주세요. 후보를 곱한 전체 조합 수가 200개를 넘지 않게 해 주세요.");
     lines.push("");
     lines.push("1) 일회 매수: 후보값이 없는 방식입니다(그대로 둡니다).");
-    lines.push("2) 적립식 매수: amount(회당 매수 금액, 원), interval_days(매수빈도, 일수)");
+    lines.push("2) 적립식 매수: amount(회당 매수 금액, 원). 살 수 있는 날은 매일 삽니다.");
     lines.push("3) 적립식 매수 + 이동평균선 조건: ma_window(이동평균 기간, 거래일),");
-    lines.push("   below_amount/below_interval_days(이동평균선 아래일 때 매수금액·매수빈도),");
-    lines.push("   above_amount/above_interval_days(위일 때 매수금액·매수빈도). 아래·위 중");
-    lines.push("   한쪽만 후보를 줘도 됩니다.");
-    lines.push("4) 등락률 기준 비중 조절 매수(구간 하나로 단순화): interval_days(평가 빈도,");
-    lines.push("   거래일), lookback_days(평가 기준일, 몇일전 시세대비), threshold_pct(등락률");
-    lines.push("   임계값, %), amount(그 구간 매수 금액, 원)");
+    lines.push("   below_amount(이동평균선 아래일 때 매수금액), above_amount(위일 때");
+    lines.push("   매수금액). 아래·위 중 한쪽만 후보를 줘도 됩니다. 조건을 만족하는 날은");
+    lines.push("   매일 삽니다.");
+    lines.push("4) 등락률 기준 비중 조절 매수(구간 하나로 단순화): lookback_days(평가");
+    lines.push("   기준일, 몇일전 시세대비), threshold_pct(등락률 임계값, %), amount(그 구간");
+    lines.push("   매수 금액, 원). 매일 확인합니다.");
     lines.push("");
     lines.push("네 방식 모두 익절선(take_profit_pct)·손절선(stop_loss_pct) 후보도 매수평균가");
     lines.push("대비 비율로 줄 수 있습니다(예: 0.1 = 10%). 비워 두면 그 조건 없이 계산합니다.");
@@ -2785,7 +2776,7 @@
     var pairError = checkParamPairs(schema, values, schema.label);
     if (pairError) return { error: pairError };
     if (key === "dca_ma" && values.below_amount === undefined && values.above_amount === undefined) {
-      return { error: schema.label + "은 이동평균선 아래·위 중 최소 한쪽은 매수금액과 매수빈도를 채워야 합니다." };
+      return { error: schema.label + "은 이동평균선 아래·위 중 최소 한쪽은 매수금액을 채워야 합니다." };
     }
 
     return { values: values, count: count };

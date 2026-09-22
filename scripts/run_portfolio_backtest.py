@@ -53,7 +53,7 @@ def _parse_args() -> argparse.Namespace:
         help=(
             "종목마다 다른 전략 설정을 담은 JSON 객체. 키는 종목, 값은 "
             'find_best_strategy.py --search 한 조합과 같은 모양. 예: '
-            '{"SOXL":{"key":"lump_sum"},"TQQQ":{"key":"dca","amount":100000,"interval_days":5}}'
+            '{"SOXL":{"key":"lump_sum"},"TQQQ":{"key":"dca","amount":100000}}'
         ),
     )
     parser.add_argument("--capital", type=float, required=True, help="포트폴리오 전체가 나눠 쓰는 총자본(원)")

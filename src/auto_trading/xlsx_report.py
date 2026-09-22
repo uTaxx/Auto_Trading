@@ -68,7 +68,7 @@ def build_symbol_report(
         [f"조회기간: {start} ~ {end}", f"총자본: {capital:,.0f}원", f"생성시각(KST): {generated_at_kst}"],
     )
     headers = [
-        "종목", "매수방식", "매수금액", "매수빈도", "이동평균조건", "등락구간", "익절선", "손절선",
+        "종목", "매수방식", "매수금액", "이동평균조건", "등락구간", "익절선", "손절선",
         "총투자금", "실현손익", "평가손익", "합계", "수익률", "최대낙폭", "현금부족일수",
     ]
     _write_header_row(ws, table_row, headers)
@@ -77,20 +77,18 @@ def build_symbol_report(
     ws.cell(row=r, column=2, value=summary_row.get("매수방식"))
     if summary_row.get("매수금액") is not None:
         ws.cell(row=r, column=3, value=summary_row["매수금액"]).number_format = MONEY_FORMAT
-    if summary_row.get("매수빈도") is not None:
-        ws.cell(row=r, column=4, value=f"{summary_row['매수빈도']}일")
-    ws.cell(row=r, column=5, value=summary_row.get("이동평균조건"))
-    ws.cell(row=r, column=6, value=summary_row.get("등락구간"))
-    ws.cell(row=r, column=7, value=summary_row.get("익절선"))
-    ws.cell(row=r, column=8, value=summary_row.get("손절선"))
-    ws.cell(row=r, column=9, value=summary_row["총투자금"]).number_format = MONEY_FORMAT
-    ws.cell(row=r, column=10, value=summary_row["실현손익"]).number_format = MONEY_FORMAT
-    ws.cell(row=r, column=11, value=summary_row["평가손익"]).number_format = MONEY_FORMAT
-    ws.cell(row=r, column=12, value=summary_row["합계"]).number_format = MONEY_FORMAT
-    ws.cell(row=r, column=13, value=summary_row["수익률"] / 100).number_format = PERCENT_FORMAT
-    ws.cell(row=r, column=14, value=summary_row.get("최대낙폭", 0) / 100).number_format = PERCENT_FORMAT
-    ws.cell(row=r, column=15, value=summary_row.get("현금부족일수", 0))
-    _set_column_widths(ws, [10, 18, 12, 10, 22, 22, 9, 9, 14, 14, 14, 14, 10, 10, 12])
+    ws.cell(row=r, column=4, value=summary_row.get("이동평균조건"))
+    ws.cell(row=r, column=5, value=summary_row.get("등락구간"))
+    ws.cell(row=r, column=6, value=summary_row.get("익절선"))
+    ws.cell(row=r, column=7, value=summary_row.get("손절선"))
+    ws.cell(row=r, column=8, value=summary_row["총투자금"]).number_format = MONEY_FORMAT
+    ws.cell(row=r, column=9, value=summary_row["실현손익"]).number_format = MONEY_FORMAT
+    ws.cell(row=r, column=10, value=summary_row["평가손익"]).number_format = MONEY_FORMAT
+    ws.cell(row=r, column=11, value=summary_row["합계"]).number_format = MONEY_FORMAT
+    ws.cell(row=r, column=12, value=summary_row["수익률"] / 100).number_format = PERCENT_FORMAT
+    ws.cell(row=r, column=13, value=summary_row.get("최대낙폭", 0) / 100).number_format = PERCENT_FORMAT
+    ws.cell(row=r, column=14, value=summary_row.get("현금부족일수", 0))
+    _set_column_widths(ws, [10, 18, 12, 22, 22, 9, 9, 14, 14, 14, 14, 10, 10, 12])
 
     ws2 = wb.create_sheet("일별 시계열")
     daily_headers = [
@@ -154,7 +152,7 @@ def build_comparison_report(
         [f"조회기간: {start} ~ {end}", f"총자본(종목·전략마다): {capital:,.0f}원", f"생성시각(KST): {generated_at_kst}"],
     )
     headers = [
-        "종목", "매수방식", "매수금액", "매수빈도", "이동평균조건", "등락구간", "익절선", "손절선",
+        "종목", "매수방식", "매수금액", "이동평균조건", "등락구간", "익절선", "손절선",
         "총투자금", "실현손익", "평가손익", "합계", "수익률", "최대낙폭", "현금부족일수",
     ]
     _write_header_row(ws, table_row, headers)
@@ -163,25 +161,23 @@ def build_comparison_report(
         ws.cell(row=i, column=2, value=row.get("매수방식"))
         if row.get("매수금액") is not None:
             ws.cell(row=i, column=3, value=row["매수금액"]).number_format = MONEY_FORMAT
-        if row.get("매수빈도") is not None:
-            ws.cell(row=i, column=4, value=f"{row['매수빈도']}일")
-        ws.cell(row=i, column=5, value=row.get("이동평균조건"))
-        ws.cell(row=i, column=6, value=row.get("등락구간"))
-        ws.cell(row=i, column=7, value=row.get("익절선"))
-        ws.cell(row=i, column=8, value=row.get("손절선"))
-        ws.cell(row=i, column=9, value=row["총투자금"]).number_format = MONEY_FORMAT
-        ws.cell(row=i, column=10, value=row["실현손익"]).number_format = MONEY_FORMAT
-        ws.cell(row=i, column=11, value=row["평가손익"]).number_format = MONEY_FORMAT
-        ws.cell(row=i, column=12, value=row["합계"]).number_format = MONEY_FORMAT
-        pct_cell = ws.cell(row=i, column=13, value=row["수익률"] / 100)
+        ws.cell(row=i, column=4, value=row.get("이동평균조건"))
+        ws.cell(row=i, column=5, value=row.get("등락구간"))
+        ws.cell(row=i, column=6, value=row.get("익절선"))
+        ws.cell(row=i, column=7, value=row.get("손절선"))
+        ws.cell(row=i, column=8, value=row["총투자금"]).number_format = MONEY_FORMAT
+        ws.cell(row=i, column=9, value=row["실현손익"]).number_format = MONEY_FORMAT
+        ws.cell(row=i, column=10, value=row["평가손익"]).number_format = MONEY_FORMAT
+        ws.cell(row=i, column=11, value=row["합계"]).number_format = MONEY_FORMAT
+        pct_cell = ws.cell(row=i, column=12, value=row["수익률"] / 100)
         pct_cell.number_format = PERCENT_FORMAT
         pct_cell.font = POSITIVE_FONT if row["수익률"] >= 0 else NEGATIVE_FONT
-        ws.cell(row=i, column=14, value=row.get("최대낙폭", 0) / 100).number_format = PERCENT_FORMAT
-        shortfall_days_cell = ws.cell(row=i, column=15, value=row.get("현금부족일수", 0))
+        ws.cell(row=i, column=13, value=row.get("최대낙폭", 0) / 100).number_format = PERCENT_FORMAT
+        shortfall_days_cell = ws.cell(row=i, column=14, value=row.get("현금부족일수", 0))
         if row.get("현금부족일수", 0) > 0:
             shortfall_days_cell.font = NEGATIVE_FONT
     ws.freeze_panes = f"A{table_row + 1}"
-    _set_column_widths(ws, [10, 18, 12, 10, 22, 22, 9, 9, 14, 14, 14, 14, 10, 10, 12])
+    _set_column_widths(ws, [10, 18, 12, 22, 22, 9, 9, 14, 14, 14, 14, 10, 10, 12])
 
     return wb
 
