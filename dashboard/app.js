@@ -1411,7 +1411,7 @@
     if (data["비교엑셀"] && data["비교엑셀"].file_id) {
       var wholeBtn = document.createElement("button");
       wholeBtn.type = "button";
-      wholeBtn.textContent = "전체 비교 엑셀 보기";
+      wholeBtn.textContent = "전체 비교 엑셀 받기";
       wholeBtn.addEventListener("click", function () {
         openFile(data["비교엑셀"].file_id, data["비교엑셀"]["이름"]);
       });
@@ -1448,7 +1448,7 @@
     thead.innerHTML =
       "<tr><th>종목</th><th>매수방식</th><th>매수금액</th><th>이동평균조건</th>" +
       "<th>등락구간</th><th>익절선</th><th>손절선</th><th>총투자금</th><th>실현손익</th>" +
-      "<th>평가손익</th><th>합계</th><th>수익률</th><th>최대낙폭</th><th>현금부족일수</th><th>엑셀</th></tr>";
+      "<th>평가손익</th><th>합계</th><th>수익률</th><th>최대낙폭</th><th>현금부족일수</th><th>일별 거래현황표</th></tr>";
     table.appendChild(thead);
     var tbody = document.createElement("tbody");
     summary.forEach(function (row) {
@@ -1476,7 +1476,7 @@
       if (row["엑셀"] && row["엑셀"].file_id) {
         var excelBtn = document.createElement("button");
         excelBtn.type = "button";
-        excelBtn.textContent = "보기";
+        excelBtn.textContent = "받기";
         excelBtn.addEventListener("click", function () {
           openFile(row["엑셀"].file_id, row["엑셀"]["이름"]);
         });
@@ -1490,8 +1490,54 @@
     wrap.appendChild(table);
     resultView.appendChild(wrap);
 
-    var chart = buildChart(series);
-    if (chart) resultView.appendChild(chart);
+    // 전략이 여럿이면 체크박스로 켜고 꺼서 그래프를 견줄 수 있게 한다.
+    // 색은 전체 키 기준으로 한 번만 배정해서, 체크를 끄고 켜도 남은
+    // 전략의 색이 밀리지 않는다.
+    var chartKeys = Object.keys(series);
+    if (chartKeys.length > 0) {
+      var chartColorByKey = {};
+      chartKeys.forEach(function (k, idx) { chartColorByKey[k] = PALETTE[idx % PALETTE.length]; });
+
+      if (chartKeys.length > 1) {
+        var checklist = document.createElement("div");
+        checklist.className = "chart-checklist";
+        resultView.appendChild(checklist);
+      }
+      var chartHost = document.createElement("div");
+      resultView.appendChild(chartHost);
+
+      var chartCheckboxes = {};
+      function rerenderComparisonChart() {
+        var filtered = {};
+        chartKeys.forEach(function (k) {
+          if (!chartCheckboxes[k] || chartCheckboxes[k].checked) filtered[k] = series[k];
+        });
+        chartHost.innerHTML = "";
+        var chart = buildChart(filtered, chartColorByKey);
+        if (chart) chartHost.appendChild(chart);
+      }
+      if (chartKeys.length > 1) {
+        chartKeys.forEach(function (k) {
+          var label = document.createElement("label");
+          var cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.checked = true;
+          cb.addEventListener("change", rerenderComparisonChart);
+          chartCheckboxes[k] = cb;
+          label.appendChild(cb);
+          var swatch = document.createElement("i");
+          swatch.style.background = chartColorByKey[k];
+          swatch.style.display = "inline-block";
+          swatch.style.width = "10px";
+          swatch.style.height = "10px";
+          swatch.style.borderRadius = "2px";
+          label.appendChild(swatch);
+          label.appendChild(document.createTextNode(k));
+          checklist.appendChild(label);
+        });
+      }
+      rerenderComparisonChart();
+    }
 
     var similarSelection = matchingSimilarSelection(data);
     if (similarSelection) resultView.appendChild(buildSimilarFollowupNote(similarSelection));
@@ -1620,21 +1666,141 @@
       svg.appendChild(xText);
     }
 
+    var hasMarkers = false;
     nonEmpty.forEach(function (s) {
-      var d = s.points
-        .map(function (p, i) { return (i === 0 ? "M" : "L") + xAt(p.date).toFixed(1) + "," + yAt(p.value).toFixed(1); })
-        .join(" ");
+      var pixelPoints = s.points.map(function (p) { return { x: xAt(p.date), y: yAt(p.value), value: p.value }; });
       var path = document.createElementNS(svgNS, "path");
-      path.setAttribute("d", d);
+      path.setAttribute("d", smoothPathD(pixelPoints));
       path.setAttribute("fill", "none");
       path.setAttribute("stroke", s.color);
       path.setAttribute("stroke-width", "2");
       if (s.dashed) path.setAttribute("stroke-dasharray", "4,3");
       svg.appendChild(path);
+
+      // 그날 매수·매도가 있었으면 점으로 표시한다(값을 넘긴 시리즈만).
+      s.points.forEach(function (p) {
+        var marker = tradeMarkerInfo(p);
+        if (!marker) return;
+        hasMarkers = true;
+        var dot = document.createElementNS(svgNS, "circle");
+        dot.setAttribute("cx", xAt(p.date).toFixed(1));
+        dot.setAttribute("cy", yAt(p.value).toFixed(1));
+        dot.setAttribute("r", p.sell_type || p.sell_amount ? 3 : 2.3);
+        dot.setAttribute("fill", marker.color);
+        dot.setAttribute("stroke", "var(--surface)");
+        dot.setAttribute("stroke-width", "0.7");
+        var title = document.createElementNS(svgNS, "title");
+        title.textContent = p.date + " " + marker.title;
+        dot.appendChild(title);
+        svg.appendChild(dot);
+      });
+
+      // 이 시리즈의 최저·최고·평균을 표시한다.
+      drawSeriesExtremes(svg, svgNS, pixelPoints, s.color, yAt, padding.left, width - padding.right, padding.top + 8, height - padding.bottom - 4);
     });
 
     var wrap = document.createElement("div");
+    wrap.className = "chart-wrap";
     wrap.appendChild(svg);
+
+    // ── 마우스를 올리면 그 시점의 값을 보여준다 ──
+    if (nonEmpty.length > 0) {
+      var tooltip = document.createElement("div");
+      tooltip.className = "chart-tooltip";
+      wrap.appendChild(tooltip);
+
+      function nearestByTime(points, targetTime) {
+        var lo = 0, hi = points.length - 1;
+        if (targetTime <= new Date(points[0].date).getTime()) return points[0];
+        if (targetTime >= new Date(points[hi].date).getTime()) return points[hi];
+        while (lo < hi - 1) {
+          var mid = (lo + hi) >> 1;
+          if (new Date(points[mid].date).getTime() < targetTime) lo = mid; else hi = mid;
+        }
+        var tLo = new Date(points[lo].date).getTime();
+        var tHi = new Date(points[hi].date).getTime();
+        return (targetTime - tLo) <= (tHi - targetTime) ? points[lo] : points[hi];
+      }
+
+      var guideLine = document.createElementNS(svgNS, "line");
+      guideLine.setAttribute("y1", padding.top);
+      guideLine.setAttribute("y2", padding.top + plotH);
+      guideLine.setAttribute("stroke", "currentColor");
+      guideLine.setAttribute("stroke-opacity", "0.35");
+      guideLine.style.display = "none";
+      svg.appendChild(guideLine);
+
+      var hoverDots = nonEmpty.map(function (s) {
+        var dot = document.createElementNS(svgNS, "circle");
+        dot.setAttribute("r", "3.5");
+        dot.setAttribute("fill", s.color);
+        dot.setAttribute("stroke", "var(--surface)");
+        dot.setAttribute("stroke-width", "1.2");
+        dot.style.display = "none";
+        svg.appendChild(dot);
+        return dot;
+      });
+
+      var hitRect = document.createElementNS(svgNS, "rect");
+      hitRect.setAttribute("x", padding.left);
+      hitRect.setAttribute("y", padding.top);
+      hitRect.setAttribute("width", plotW);
+      hitRect.setAttribute("height", plotH);
+      hitRect.setAttribute("fill", "transparent");
+      svg.appendChild(hitRect);
+
+      hitRect.addEventListener("mousemove", function (evt) {
+        var box = svg.getBoundingClientRect();
+        var scaleX = width / box.width;
+        var mouseX = (evt.clientX - box.left) * scaleX;
+        var frac = Math.max(0, Math.min(1, (mouseX - padding.left) / plotW));
+        var targetTime = minTime + frac * timeSpan;
+
+        var gx = (padding.left + frac * plotW).toFixed(1);
+        guideLine.setAttribute("x1", gx);
+        guideLine.setAttribute("x2", gx);
+        guideLine.style.display = "";
+
+        var rows = [];
+        var dateLabel = "";
+        nonEmpty.forEach(function (s, i) {
+          var p = nearestByTime(s.points, targetTime);
+          if (!dateLabel) dateLabel = p.date;
+          hoverDots[i].setAttribute("cx", xAt(p.date).toFixed(1));
+          hoverDots[i].setAttribute("cy", yAt(p.value).toFixed(1));
+          hoverDots[i].style.display = "";
+          rows.push({ color: s.color, label: s.label, value: p.value });
+        });
+
+        tooltip.innerHTML = "";
+        var dateDiv = document.createElement("div");
+        dateDiv.className = "tt-date";
+        dateDiv.textContent = dateLabel;
+        tooltip.appendChild(dateDiv);
+        rows.forEach(function (r) {
+          var row = document.createElement("div");
+          row.className = "tt-row";
+          var sw = document.createElement("i");
+          sw.style.background = r.color;
+          row.appendChild(sw);
+          row.appendChild(document.createTextNode(r.label + ": " + fmtNumber(r.value) + "원"));
+          tooltip.appendChild(row);
+        });
+
+        var wrapBox = wrap.getBoundingClientRect();
+        var left = (evt.clientX - wrapBox.left) + 14;
+        var top = (evt.clientY - wrapBox.top) + 14;
+        if (left + 200 > wrapBox.width) left = (evt.clientX - wrapBox.left) - 14 - 200;
+        tooltip.style.left = Math.max(0, left) + "px";
+        tooltip.style.top = Math.max(0, top) + "px";
+        tooltip.style.visibility = "visible";
+      });
+      hitRect.addEventListener("mouseleave", function () {
+        guideLine.style.display = "none";
+        hoverDots.forEach(function (d) { d.style.display = "none"; });
+        tooltip.style.visibility = "hidden";
+      });
+    }
 
     var legend = document.createElement("div");
     legend.className = "chart-legend";
@@ -1646,6 +1812,20 @@
       span.appendChild(document.createTextNode(s.label));
       legend.appendChild(span);
     });
+    if (hasMarkers) {
+      [
+        { color: BUY_MARKER_COLOR, label: "매수 시점" },
+        { color: SELL_MARKER_COLOR, label: "매도 시점(익절·손절 포함)" },
+      ].forEach(function (item) {
+        var span = document.createElement("span");
+        var i = document.createElement("i");
+        i.style.background = item.color;
+        i.style.borderRadius = "50%";
+        span.appendChild(i);
+        span.appendChild(document.createTextNode(item.label));
+        legend.appendChild(span);
+      });
+    }
     wrap.appendChild(legend);
 
     return wrap;
@@ -1711,6 +1891,9 @@
     var chartTitle = document.createElement("h3");
     chartTitle.textContent = "누적자산 비교";
     resultView.appendChild(chartTitle);
+    var chartChecklist = document.createElement("div");
+    chartChecklist.className = "chart-checklist";
+    resultView.appendChild(chartChecklist);
     var chartHost = document.createElement("div");
     resultView.appendChild(chartHost);
     var chartNote = document.createElement("p");
@@ -1722,27 +1905,61 @@
       {
         label: "Walk-forward OOS(검증기간 연결)",
         color: "#2f6f65",
-        points: oosSeries.map(function (p) { return { date: p.trade_date, value: p.total_value }; }),
+        points: oosSeries.map(function (p) {
+          return { date: p.trade_date, value: p.total_value, buy_amount: p.buy_amount, sell_amount: p.sell_amount, sell_type: p.sell_type };
+        }),
       },
       {
         label: "전체기간 최적화",
         color: "#4a6fa5",
         dashed: true,
-        points: baselineSeries.map(function (p) { return { date: p.trade_date, value: p.total_value }; }),
+        points: baselineSeries.map(function (p) {
+          return { date: p.trade_date, value: p.total_value, buy_amount: p.buy_amount, sell_amount: p.sell_amount, sell_type: p.sell_type };
+        }),
       },
     ];
+
+    // 여러 선을 체크박스로 켜고 꺼서 비교할 수 있게 한다. Buy & Hold는
+    // 시세를 받아 온 뒤에야 chartSeries에 들어오므로, 그때 체크박스도
+    // 같이 추가한다(addChartCheckbox).
+    var chartCheckboxByLabel = {};
+    function addChartCheckbox(s) {
+      if (chartCheckboxByLabel[s.label]) return;
+      var label = document.createElement("label");
+      var cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = true;
+      cb.addEventListener("change", rerenderEquityChart);
+      chartCheckboxByLabel[s.label] = cb;
+      label.appendChild(cb);
+      var swatch = document.createElement("i");
+      swatch.style.background = s.color;
+      swatch.style.display = "inline-block";
+      swatch.style.width = "10px";
+      swatch.style.height = "10px";
+      swatch.style.borderRadius = "2px";
+      label.appendChild(swatch);
+      label.appendChild(document.createTextNode(s.label));
+      chartChecklist.appendChild(label);
+    }
     function rerenderEquityChart() {
       chartHost.innerHTML = "";
-      var chart = buildEquityCurveChart(chartSeries);
+      var visible = chartSeries.filter(function (s) {
+        return !chartCheckboxByLabel[s.label] || chartCheckboxByLabel[s.label].checked;
+      });
+      var chart = buildEquityCurveChart(visible);
       if (chart) chartHost.appendChild(chart);
     }
+    chartSeries.forEach(addChartCheckbox);
     rerenderEquityChart();
 
     if (symbol && capital && data["조회기간"]) {
       chartNote.textContent = "Buy & Hold 비교를 위해 시세를 불러오는 중입니다...";
       computeBuyHoldSeries(symbol, data["조회기간"]["시작"], data["조회기간"]["종료"], capital).then(function (points) {
         if (points) {
-          chartSeries.push({ label: "Buy & Hold(" + symbol + ")", color: "#c98f1c", dashed: true, points: points });
+          var buyHoldSeries = { label: "Buy & Hold(" + symbol + ")", color: "#c98f1c", dashed: true, points: points };
+          chartSeries.push(buyHoldSeries);
+          addChartCheckbox(buyHoldSeries);
           chartNote.textContent = "실제 백테스트·시세로 계산된 값만 그립니다.";
         } else {
           chartNote.textContent = "Buy & Hold 비교: 시세를 불러오지 못해 표시하지 않습니다.";
@@ -1929,7 +2146,135 @@
 
   var PALETTE = ["#2f6f65", "#b5502e", "#4a6fa5", "#8a5a9e", "#c98f1c", "#5a8f4a", "#a5455a", "#3d8f8a"];
 
-  function buildChart(series) {
+  // 매수는 빨간 점, 매도는 파란 점으로 그린다(2026-09-23). 익절·손절은
+  // 색으로 나누지 않고 말풍선 글자로만 구분한다. buildChart(전략비교·
+  // 최적화)와 buildEquityCurveChart(워크포워드·포트폴리오)가 같이 쓴다.
+  var BUY_MARKER_COLOR = "#c0392b";
+  var SELL_MARKER_COLOR = "#2f6fa5";
+
+  function tradeMarkerInfo(p) {
+    if (p.sell_type || p.sell_amount) {
+      return {
+        color: SELL_MARKER_COLOR,
+        title: (p.sell_type ? p.sell_type + " 매도" : "매도") + " " + fmtNumber(p.sell_amount || 0) + "원",
+      };
+    }
+    if (p.buy_amount) {
+      return { color: BUY_MARKER_COLOR, title: "매수 " + fmtNumber(p.buy_amount) + "원" };
+    }
+    return null;
+  }
+
+  // ── 그래프 공용 도구(2026-09-23) ──────────────────────────
+  // 완만한 곡선, 최저·최고·평균 표시, 마우스 오버 수치 표시를
+  // buildChart(전략비교·최적화)와 buildEquityCurveChart(워크포워드·
+  // 포트폴리오)가 같이 쓴다. 두 함수는 x축 계산 방식이 달라서(인덱스
+  // 기준 대 실제 날짜 기준) 값 위치를 픽셀로 바꾼 뒤부터는 이 도구들을
+  // 그대로 재사용한다.
+
+  // Catmull-Rom 스플라인을 3차 베지어로 바꿔서 완만한 곡선을 그린다.
+  // 원래 데이터 점은 그대로 지나가므로 매수·매도 점 위치는 안 바뀐다.
+  function smoothPathD(points) {
+    if (points.length === 0) return "";
+    if (points.length < 3) {
+      return points.map(function (p, i) { return (i === 0 ? "M" : "L") + p.x.toFixed(1) + "," + p.y.toFixed(1); }).join(" ");
+    }
+    var d = "M" + points[0].x.toFixed(1) + "," + points[0].y.toFixed(1);
+    for (var i = 0; i < points.length - 1; i++) {
+      var p0 = points[i === 0 ? 0 : i - 1];
+      var p1 = points[i];
+      var p2 = points[i + 1];
+      var p3 = points[i + 2 < points.length ? i + 2 : i + 1];
+      var c1x = p1.x + (p2.x - p0.x) / 6;
+      var c1y = p1.y + (p2.y - p0.y) / 6;
+      var c2x = p2.x - (p3.x - p1.x) / 6;
+      var c2y = p2.y - (p3.y - p1.y) / 6;
+      d += " C" + c1x.toFixed(1) + "," + c1y.toFixed(1) + " " + c2x.toFixed(1) + "," + c2y.toFixed(1) + " " + p2.x.toFixed(1) + "," + p2.y.toFixed(1);
+    }
+    return d;
+  }
+
+  function triangleD(cx, cy, up, size) {
+    return up
+      ? "M" + cx.toFixed(1) + "," + (cy - size).toFixed(1) + " L" + (cx - size).toFixed(1) + "," + (cy + size).toFixed(1) + " L" + (cx + size).toFixed(1) + "," + (cy + size).toFixed(1) + " Z"
+      : "M" + cx.toFixed(1) + "," + (cy + size).toFixed(1) + " L" + (cx - size).toFixed(1) + "," + (cy - size).toFixed(1) + " L" + (cx + size).toFixed(1) + "," + (cy - size).toFixed(1) + " Z";
+  }
+
+  // 값 옆에 배경을 깐 글자를 그린다. 선 위에 글자만 올리면 안 읽혀서다.
+  function svgLabelWithBg(svgNS, x, y, text, color, anchor) {
+    var g = document.createElementNS(svgNS, "g");
+    var w = text.length * 6.1 + 8;
+    var rx = anchor === "end" ? x - w : anchor === "middle" ? x - w / 2 : x;
+    var rect = document.createElementNS(svgNS, "rect");
+    rect.setAttribute("x", rx.toFixed(1));
+    rect.setAttribute("y", (y - 9).toFixed(1));
+    rect.setAttribute("width", w.toFixed(1));
+    rect.setAttribute("height", "14");
+    rect.setAttribute("rx", "3");
+    rect.setAttribute("fill", "var(--surface)");
+    rect.setAttribute("fill-opacity", "0.9");
+    g.appendChild(rect);
+    var t = document.createElementNS(svgNS, "text");
+    t.setAttribute("x", x.toFixed(1));
+    t.setAttribute("y", (y + 3).toFixed(1));
+    t.setAttribute("text-anchor", anchor);
+    t.setAttribute("font-size", "10");
+    t.setAttribute("font-weight", "600");
+    t.setAttribute("fill", color);
+    t.textContent = text;
+    g.appendChild(t);
+    return g;
+  }
+
+  // 시리즈 하나의 최저점·최고점에 삼각 기호와 글자를, 평균값에는 점선과
+  // 글자를 그린다. pixelPoints는 [{x, y, value}] 형태로 이미 화면 좌표로
+  // 바꾼 값이다.
+  function drawSeriesExtremes(svg, svgNS, pixelPoints, color, yAt, plotLeft, plotRight, clampTop, clampBottom) {
+    if (pixelPoints.length < 2) return;
+    var minP = pixelPoints[0], maxP = pixelPoints[0], sum = 0;
+    pixelPoints.forEach(function (p) {
+      if (p.value < minP.value) minP = p;
+      if (p.value > maxP.value) maxP = p;
+      sum += p.value;
+    });
+    var avg = sum / pixelPoints.length;
+    var avgY = yAt(avg);
+
+    var avgLine = document.createElementNS(svgNS, "line");
+    avgLine.setAttribute("x1", plotLeft.toFixed(1));
+    avgLine.setAttribute("x2", plotRight.toFixed(1));
+    avgLine.setAttribute("y1", avgY.toFixed(1));
+    avgLine.setAttribute("y2", avgY.toFixed(1));
+    avgLine.setAttribute("stroke", color);
+    avgLine.setAttribute("stroke-width", "1");
+    avgLine.setAttribute("stroke-dasharray", "3,3");
+    avgLine.setAttribute("opacity", "0.5");
+    svg.appendChild(avgLine);
+    svg.appendChild(svgLabelWithBg(
+      svgNS, plotRight - 2, Math.max(clampTop, Math.min(clampBottom, avgY)),
+      "평균 " + fmtNumber(Math.round(avg)), color, "end"
+    ));
+
+    function placeMarker(p, up, text, dy) {
+      var triY = up ? p.y - 5 : p.y + 5;
+      var tri = document.createElementNS(svgNS, "path");
+      tri.setAttribute("d", triangleD(p.x, triY, up, 4));
+      tri.setAttribute("fill", color);
+      tri.setAttribute("stroke", "var(--surface)");
+      tri.setAttribute("stroke-width", "0.6");
+      svg.appendChild(tri);
+      var labelY = Math.max(clampTop, Math.min(clampBottom, p.y + dy));
+      // 점이 왼쪽·오른쪽 끝에 가까우면 글자가 그래프 밖으로 잘리지
+      // 않게 기준점을 바꾼다.
+      var edgeMargin = 44;
+      var anchor = p.x - plotLeft < edgeMargin ? "start" : plotRight - p.x < edgeMargin ? "end" : "middle";
+      svg.appendChild(svgLabelWithBg(svgNS, p.x, labelY, text, color, anchor));
+    }
+    placeMarker(maxP, true, "최고 " + fmtNumber(Math.round(maxP.value)), -14);
+    placeMarker(minP, false, "최저 " + fmtNumber(Math.round(minP.value)), 16);
+  }
+
+  function buildChart(series, colorByKey) {
     var keys = Object.keys(series);
     if (keys.length === 0) return null;
 
@@ -1998,61 +2343,150 @@
       svg.appendChild(xTickText);
     }
 
-    var buyColor = "#2f6f65";
-    var takeProfitColor = "#c98f1c";
-    var stopLossColor = "#b5502e";
+    // colorByKey를 넘겨받으면 그 색을 쓴다. 체크박스로 시리즈를
+    // 켜고 끌 때 남은 시리즈끼리 색이 밀리지 않게 하려는 것이다
+    // (renderResult가 전체 키 기준으로 한 번만 색을 배정해 넘긴다).
+    function colorFor(k, idx) { return (colorByKey && colorByKey[k]) || PALETTE[idx % PALETTE.length]; }
 
+    var hoverSeries = [];
     keys.forEach(function (k, idx) {
       var points = series[k];
-      var color = PALETTE[idx % PALETTE.length];
-      var d = points
-        .map(function (p, i) { return (i === 0 ? "M" : "L") + xAt(i, points.length).toFixed(1) + "," + yAt(p.total_value).toFixed(1); })
-        .join(" ");
+      var color = colorFor(k, idx);
+      hoverSeries.push({ label: k, color: color, points: points });
+
+      var pixelPoints = points.map(function (p, i) { return { x: xAt(i, points.length), y: yAt(p.total_value), value: p.total_value }; });
       var path = document.createElementNS(svgNS, "path");
-      path.setAttribute("d", d);
+      path.setAttribute("d", smoothPathD(pixelPoints));
       path.setAttribute("fill", "none");
       path.setAttribute("stroke", color);
       path.setAttribute("stroke-width", "2");
       svg.appendChild(path);
 
-      // 그날 매수·익절 매도·손절 매도가 있었으면 점으로 표시한다.
+      // 그날 매수·매도가 있었으면 점으로 표시한다.
       points.forEach(function (p, i) {
-        var markerColor = null;
-        if (p.sell_type === "익절") markerColor = takeProfitColor;
-        else if (p.sell_type === "손절") markerColor = stopLossColor;
-        else if (p.buy_amount) markerColor = buyColor;
-        if (!markerColor) return;
+        var marker = tradeMarkerInfo(p);
+        if (!marker) return;
         var dot = document.createElementNS(svgNS, "circle");
         dot.setAttribute("cx", xAt(i, points.length).toFixed(1));
         dot.setAttribute("cy", yAt(p.total_value).toFixed(1));
-        dot.setAttribute("r", p.sell_type ? 3 : 2.3);
-        dot.setAttribute("fill", markerColor);
+        dot.setAttribute("r", p.sell_type || p.sell_amount ? 3 : 2.3);
+        dot.setAttribute("fill", marker.color);
         dot.setAttribute("stroke", "var(--surface)");
         dot.setAttribute("stroke-width", "0.7");
         var title = document.createElementNS(svgNS, "title");
-        title.textContent = p.trade_date + " " + (p.sell_type ? p.sell_type + " 매도" : "매수 " + fmtNumber(p.buy_amount) + "원");
+        title.textContent = p.trade_date + " " + marker.title;
         dot.appendChild(title);
         svg.appendChild(dot);
       });
+
+      // 이 시리즈의 최저·최고·평균을 표시한다.
+      drawSeriesExtremes(svg, svgNS, pixelPoints, color, yAt, padding.left, width - padding.right, padding.top + 8, height - padding.bottom - 4);
     });
 
     var wrap = document.createElement("div");
+    wrap.className = "chart-wrap";
     wrap.appendChild(svg);
+
+    // ── 마우스를 올리면 그 시점의 값을 보여준다 ──
+    if (hoverSeries.length > 0 && maxLen > 1) {
+      var tooltip = document.createElement("div");
+      tooltip.className = "chart-tooltip";
+      wrap.appendChild(tooltip);
+
+      var guideLine = document.createElementNS(svgNS, "line");
+      guideLine.setAttribute("y1", padding.top);
+      guideLine.setAttribute("y2", padding.top + plotH);
+      guideLine.setAttribute("stroke", "currentColor");
+      guideLine.setAttribute("stroke-opacity", "0.35");
+      guideLine.style.display = "none";
+      svg.appendChild(guideLine);
+
+      var hoverDots = hoverSeries.map(function (s) {
+        var dot = document.createElementNS(svgNS, "circle");
+        dot.setAttribute("r", "3.5");
+        dot.setAttribute("fill", s.color);
+        dot.setAttribute("stroke", "var(--surface)");
+        dot.setAttribute("stroke-width", "1.2");
+        dot.style.display = "none";
+        svg.appendChild(dot);
+        return dot;
+      });
+
+      var hitRect = document.createElementNS(svgNS, "rect");
+      hitRect.setAttribute("x", padding.left);
+      hitRect.setAttribute("y", padding.top);
+      hitRect.setAttribute("width", plotW);
+      hitRect.setAttribute("height", plotH);
+      hitRect.setAttribute("fill", "transparent");
+      svg.appendChild(hitRect);
+
+      hitRect.addEventListener("mousemove", function (evt) {
+        var box = svg.getBoundingClientRect();
+        var scaleX = width / box.width;
+        var mouseX = (evt.clientX - box.left) * scaleX;
+        var frac = Math.max(0, Math.min(1, (mouseX - padding.left) / plotW));
+        var idx = Math.round(frac * (maxLen - 1));
+
+        var gx = xAt(idx, maxLen).toFixed(1);
+        guideLine.setAttribute("x1", gx);
+        guideLine.setAttribute("x2", gx);
+        guideLine.style.display = "";
+
+        var rows = [];
+        var dateLabel = "";
+        hoverSeries.forEach(function (s, i) {
+          var pIdx = Math.min(idx, s.points.length - 1);
+          var p = s.points[pIdx];
+          if (!dateLabel) dateLabel = p.trade_date;
+          hoverDots[i].setAttribute("cx", xAt(pIdx, s.points.length).toFixed(1));
+          hoverDots[i].setAttribute("cy", yAt(p.total_value).toFixed(1));
+          hoverDots[i].style.display = "";
+          rows.push({ color: s.color, label: s.label, value: p.total_value });
+        });
+
+        tooltip.innerHTML = "";
+        var dateDiv = document.createElement("div");
+        dateDiv.className = "tt-date";
+        dateDiv.textContent = dateLabel;
+        tooltip.appendChild(dateDiv);
+        rows.forEach(function (r) {
+          var row = document.createElement("div");
+          row.className = "tt-row";
+          var sw = document.createElement("i");
+          sw.style.background = r.color;
+          row.appendChild(sw);
+          row.appendChild(document.createTextNode(r.label + ": " + fmtNumber(r.value) + "원"));
+          tooltip.appendChild(row);
+        });
+
+        var wrapBox = wrap.getBoundingClientRect();
+        var left = (evt.clientX - wrapBox.left) + 14;
+        var top = (evt.clientY - wrapBox.top) + 14;
+        if (left + 200 > wrapBox.width) left = (evt.clientX - wrapBox.left) - 14 - 200;
+        tooltip.style.left = Math.max(0, left) + "px";
+        tooltip.style.top = Math.max(0, top) + "px";
+        tooltip.style.visibility = "visible";
+      });
+      hitRect.addEventListener("mouseleave", function () {
+        guideLine.style.display = "none";
+        hoverDots.forEach(function (d) { d.style.display = "none"; });
+        tooltip.style.visibility = "hidden";
+      });
+    }
 
     var legend = document.createElement("div");
     legend.className = "chart-legend";
     keys.forEach(function (k, idx) {
       var item = document.createElement("span");
       var swatch = document.createElement("i");
-      swatch.style.background = PALETTE[idx % PALETTE.length];
+      swatch.style.background = colorFor(k, idx);
       item.appendChild(swatch);
       item.appendChild(document.createTextNode(k + " 총자산"));
       legend.appendChild(item);
     });
     [
-      { color: buyColor, label: "매수 시점" },
-      { color: takeProfitColor, label: "익절 매도" },
-      { color: stopLossColor, label: "손절 매도" },
+      { color: BUY_MARKER_COLOR, label: "매수 시점" },
+      { color: SELL_MARKER_COLOR, label: "매도 시점(익절·손절 포함)" },
     ].forEach(function (item) {
       var span = document.createElement("span");
       var i = document.createElement("i");
@@ -2702,7 +3136,14 @@
         {
           label: "포트폴리오 총자산",
           color: "#2f6f65",
-          points: series.map(function (row) { return { date: row.trade_date, value: row.total_value }; }),
+          points: series.map(function (row) {
+            return {
+              date: row.trade_date,
+              value: row.total_value,
+              buy_amount: row.buy_amount,
+              sell_amount: row.sell_amount,
+            };
+          }),
         },
       ]);
       if (chart) resultView.appendChild(chart);

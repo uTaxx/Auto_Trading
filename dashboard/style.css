@@ -310,6 +310,58 @@ th:nth-child(2), td:nth-child(2) { text-align: left; }
 .result-tag.positive { color: var(--ok); }
 .result-tag.negative { color: var(--warn); }
 
+.chart-wrap {
+  position: relative;
+}
+.chart-wrap svg {
+  display: block;
+  cursor: crosshair;
+}
+.chart-tooltip {
+  position: absolute;
+  pointer-events: none;
+  z-index: 5;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  white-space: nowrap;
+  visibility: hidden;
+}
+.chart-tooltip .tt-date {
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+.chart-tooltip .tt-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.chart-tooltip .tt-row i {
+  width: 8px; height: 8px; border-radius: 2px; display: inline-block; flex: none;
+}
+
+.chart-checklist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 13px;
+  margin: 8px 0;
+}
+.chart-checklist label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 400;
+  cursor: pointer;
+}
+.chart-checklist input {
+  width: auto;
+}
+
 footer {
   max-width: 720px;
   margin: 24px auto 0;

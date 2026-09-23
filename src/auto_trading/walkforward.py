@@ -159,7 +159,9 @@ def run_walk_forward(
         chained_result = run_backtest(test_prices, capital=chain_capital, strategy=chained_strategy)
         if not chained_result.empty:
             chain_capital = float(chained_result.iloc[-1]["total_value"])
-            chained_series.append(chained_result[["trade_date", "total_value", "buy_amount", "sell_amount"]])
+            chained_series.append(
+                chained_result[["trade_date", "total_value", "buy_amount", "sell_amount", "sell_type"]]
+            )
 
         fold_rows.append(
             {
@@ -182,7 +184,13 @@ def run_walk_forward(
     combined = pd.concat(chained_series, ignore_index=True) if chained_series else pd.DataFrame()
     combined_metrics = extended_metrics(combined, capital)
     combined_series = [
-        {"trade_date": str(row["trade_date"]), "total_value": round(row["total_value"])}
+        {
+            "trade_date": str(row["trade_date"]),
+            "total_value": round(row["total_value"]),
+            "buy_amount": round(row["buy_amount"]) if row["buy_amount"] else 0,
+            "sell_amount": round(row["sell_amount"]) if row["sell_amount"] else 0,
+            "sell_type": row["sell_type"] if pd.notna(row["sell_type"]) else None,
+        }
         for _, row in combined.iterrows()
     ]
 

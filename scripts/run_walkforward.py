@@ -30,6 +30,8 @@ import sys
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import pandas as pd
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from auto_trading.backtest import build_strategy, run_backtest
@@ -139,7 +141,13 @@ def main() -> None:
     best_baseline_strategy = build_strategy(best_config, args.capital)
     best_baseline_result = run_backtest(prices, capital=args.capital, strategy=best_baseline_strategy)
     baseline_series = [
-        {"trade_date": str(row["trade_date"]), "total_value": round(row["total_value"])}
+        {
+            "trade_date": str(row["trade_date"]),
+            "total_value": round(row["total_value"]),
+            "buy_amount": round(row["buy_amount"]) if row["buy_amount"] else 0,
+            "sell_amount": round(row["sell_amount"]) if row["sell_amount"] else 0,
+            "sell_type": row["sell_type"] if pd.notna(row["sell_type"]) else None,
+        }
         for _, row in best_baseline_result.iterrows()
     ]
     # 비교표에 CAGR·Calmar·거래횟수까지 나란히 보여주려면 baseline_rows
