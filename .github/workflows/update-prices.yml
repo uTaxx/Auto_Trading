@@ -4,7 +4,8 @@ name: 시세 업데이트
 # 실행할 수 있다(Actions 탭에서 Run workflow).
 #
 # 이미 받아 둔 종목은 마지막 날짜 다음부터만 받는다. full_refresh를 켜면
-# 10년치를 처음부터 다시 받아 덮어쓴다.
+# 처음부터 다시 받아 덮어쓴다(start를 비워 두면 10년치, 채우면 그 날부터).
+# 대시보드 버튼은 start를 안 보내므로 평소엔 기존 동작 그대로다.
 
 on:
   workflow_dispatch:
@@ -13,9 +14,13 @@ on:
         description: "쉼표로 구분한 티커 (예: SPY,QQQ)"
         required: true
       full_refresh:
-        description: "true면 10년치를 처음부터 다시 받는다"
+        description: "true면 처음부터 다시 받는다"
         type: boolean
         default: false
+      start:
+        description: "전체 재수집 시작일(YYYY-MM-DD). 비우면 10년치."
+        required: false
+        default: ""
 
 concurrency:
   group: update-prices
@@ -37,7 +42,8 @@ jobs:
         env:
           SYMBOLS: ${{ github.event.inputs.symbols }}
           FULL_REFRESH: ${{ github.event.inputs.full_refresh }}
+          START: ${{ github.event.inputs.start }}
           GDRIVE_SA_KEY_JSON: ${{ secrets.GDRIVE_SA_KEY_JSON }}
           GDRIVE_IMPERSONATE_EMAIL: master@sondullab.com
         run: |
-          python scripts/update_prices.py --symbols "$SYMBOLS" --full-refresh "$FULL_REFRESH"
+          python scripts/update_prices.py --symbols "$SYMBOLS" --full-refresh "$FULL_REFRESH" --start "$START"

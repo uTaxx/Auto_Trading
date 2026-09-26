@@ -3,7 +3,8 @@
 폴더 구조: 01_시세원본/<종목코드>/daily.csv
 
 이미 받아 둔 것이 있으면 마지막 날짜 다음부터만 받아서 이어 붙인다.
---full-refresh를 켜면 10년치를 처음부터 다시 받아 덮어쓴다.
+--full-refresh를 켜면 처음부터 다시 받아 덮어쓴다(기본은 10년치, --start로
+시작일을 직접 정하면 그 날부터).
 
 **요청한 종목과 같이 미국 달러/원화 환율(KRW=X)도 항상 같이 받는다**
 (2026-09-21에 더함). 화면에서 값을 원화로 환산해 보여주려면 날짜별
@@ -17,7 +18,7 @@ import argparse
 import io
 import os
 import sys
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pandas as pd
 
@@ -42,11 +43,17 @@ FX_SYMBOL = "KRW=X"  # 미국 달러 대비 원화. 화면의 달러/원화 전�
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--symbols", required=True, help="쉼표로 구분한 티커 (예: SPY,QQQ)")
-    parser.add_argument("--full-refresh", default="false", help="true면 10년치를 처음부터 다시 받는다")
+    parser.add_argument("--full-refresh", default="false", help="true면 처음부터 다시 받는다")
+    parser.add_argument(
+        "--start",
+        default="",
+        help="전체 재수집(--full-refresh true)일 때 시작일(YYYY-MM-DD). 비워 두면 오늘로부터 "
+        f"{YEARS_OF_HISTORY}년 전부터 받는다(기존 동작 그대로).",
+    )
     return parser.parse_args()
 
 
-def _update_one(service, root_folder_id: str, symbol: str, full_refresh: bool) -> None:
+def _update_one(service, root_folder_id: str, symbol: str, full_refresh: bool, start_override: date | None) -> None:
     symbol = symbol.strip().upper()
     if not symbol:
         return
@@ -69,7 +76,7 @@ def _update_one(service, root_folder_id: str, symbol: str, full_refresh: bool) -
         combined = merge_price_data(existing, new_rows)
         print(f"{symbol}: {len(new_rows)}개 거래일을 새로 받았습니다 ({start} ~ {today}).")
     else:
-        start = today - timedelta(days=365 * YEARS_OF_HISTORY)
+        start = start_override or (today - timedelta(days=365 * YEARS_OF_HISTORY))
         combined = fetch_daily_ohlcv(symbol, start, today)
         if combined.empty:
             print(f"{symbol}: 야후에서 받은 데이터가 없습니다. 티커를 확인하세요.")
@@ -82,6 +89,7 @@ def _update_one(service, root_folder_id: str, symbol: str, full_refresh: bool) -
 def main() -> None:
     args = _parse_args()
     full_refresh = args.full_refresh.strip().lower() == "true"
+    start_override = date.fromisoformat(args.start) if args.start.strip() else None
     root_folder_id = os.environ.get("GDRIVE_PRICES_FOLDER_ID", DEFAULT_PRICES_FOLDER_ID)
 
     service = _build_service()
@@ -90,9 +98,9 @@ def main() -> None:
         raise SystemExit("종목을 하나도 못 읽었습니다. --symbols를 확인하세요.")
 
     for symbol in symbols:
-        _update_one(service, root_folder_id, symbol, full_refresh)
+        _update_one(service, root_folder_id, symbol, full_refresh, start_override)
 
-    _update_one(service, root_folder_id, FX_SYMBOL, full_refresh)
+    _update_one(service, root_folder_id, FX_SYMBOL, full_refresh, start_override)
 
 
 if __name__ == "__main__":
