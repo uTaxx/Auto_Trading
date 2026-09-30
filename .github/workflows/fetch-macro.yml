@@ -1,0 +1,49 @@
+name: 거시지표 수집
+
+# 대시보드의 시장 지표 버튼이 n8n 웹훅을 거쳐 이 워크플로를 부른다. 손으로도
+# 직접 실행할 수 있다(Actions 탭에서 Run workflow).
+#
+# update-prices.yml과 같은 방식이다. 이미 받아 둔 시리즈는 마지막 날짜
+# 다음부터만 받는다. full_refresh를 켜면 처음부터 다시 받아 덮어쓴다
+# (start를 비워 두면 10년치, 채우면 그 날부터).
+
+on:
+  workflow_dispatch:
+    inputs:
+      series:
+        description: "쉼표로 구분한 FRED 시리즈 코드 (예: DGS10,FEDFUNDS)"
+        required: true
+      full_refresh:
+        description: "true면 처음부터 다시 받는다"
+        type: boolean
+        default: false
+      start:
+        description: "전체 재수집 시작일(YYYY-MM-DD). 비우면 10년치."
+        required: false
+        default: ""
+
+concurrency:
+  group: fetch-macro
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt
+
+      - name: 거시지표 받아 드라이브에 저장
+        env:
+          SERIES: ${{ github.event.inputs.series }}
+          FULL_REFRESH: ${{ github.event.inputs.full_refresh }}
+          START: ${{ github.event.inputs.start }}
+          GDRIVE_SA_KEY_JSON: ${{ secrets.GDRIVE_SA_KEY_JSON }}
+          GDRIVE_IMPERSONATE_EMAIL: master@sondullab.com
+        run: |
+          python scripts/fetch_macro.py --series "$SERIES" --full-refresh "$FULL_REFRESH" --start "$START"

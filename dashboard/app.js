@@ -4,6 +4,7 @@
   var N8N_BASE = "https://sondullab.app.n8n.cloud/webhook";
   var URLS = {
     updatePrices: N8N_BASE + "/auto-trading-update-prices",
+    updateMacro: N8N_BASE + "/auto-trading-update-macro",
     listPrices: N8N_BASE + "/auto-trading-list-prices",
     getPrice: N8N_BASE + "/auto-trading-get-price",
     checkRun: N8N_BASE + "/auto-trading-check-run",
@@ -16,6 +17,10 @@
     runWalkforward: N8N_BASE + "/auto-trading-run-walkforward",
     runPortfolioBacktest: N8N_BASE + "/auto-trading-run-portfolio-backtest",
   };
+
+  // 여러 그래프가 시리즈 색으로 같이 쓴다. 앞쪽에서(체크박스 초기 배정 때도)
+  // 바로 쓰이므로 다른 선언보다 먼저 둔다.
+  var PALETTE = ["#2f6f65", "#b5502e", "#4a6fa5", "#8a5a9e", "#c98f1c", "#5a8f4a", "#a5455a", "#3d8f8a"];
 
   // ── 0. 메뉴 탭 ─────────────────────────────────────────
   // DATA 수집과 전략분석을 상위 탭으로 나누고, 전략분석 안에 전략
@@ -962,6 +967,386 @@
         setStatus(pricesListStatus, "err", symbol + " 내용을 불러오지 못했습니다: " + err.message);
       });
   }
+
+  // ── 시장 지표(미국채·기준금리·S&P500·나스닥, 월별) ──────
+  // 국채 금리·기준금리는 FRED에서, 지수 둘은 야후에서 받는다. 둘 다
+  // 같은 01_시세원본/<코드>/daily.csv 구조로 저장하므로 시세 목록·시세
+  // 파일 웹훅(listPrices, getPrice)을 그대로 재사용한다. 새 웹훅은
+  // GitHub Actions를 부르는 것(updateMacro) 하나만 있으면 된다.
+  var MACRO_SERIES = [
+    { key: "^GSPC", label: "S&P500", axis: "left", unit: "", source: "야후" },
+    { key: "^IXIC", label: "나스닥종합", axis: "left", unit: "", source: "야후" },
+    { key: "DGS3", label: "미국채 3년물 금리", axis: "right", unit: "%", source: "FRED" },
+    { key: "DGS5", label: "미국채 5년물 금리", axis: "right", unit: "%", source: "FRED" },
+    { key: "DGS10", label: "미국채 10년물 금리", axis: "right", unit: "%", source: "FRED" },
+    { key: "FEDFUNDS", label: "미국 기준금리", axis: "right", unit: "%", source: "FRED" },
+  ];
+  var MACRO_MONTHS = 120; // 최근 10년, 이번 달 포함
+
+  function macroMonthGrid(n) {
+    var out = [];
+    var base = new Date();
+    base.setDate(1);
+    for (var i = n - 1; i >= 0; i--) {
+      var dt = new Date(base.getFullYear(), base.getMonth() - i, 1);
+      out.push(dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0"));
+    }
+    return out;
+  }
+  var MONTH_GRID = macroMonthGrid(MACRO_MONTHS);
+
+  // 일별 시세를 달마다 마지막 날짜의 값만 남겨 월별로 줄인다.
+  function resampleMonthly(rows) {
+    var byMonth = {};
+    rows.forEach(function (r) {
+      var month = r.date.slice(0, 7);
+      byMonth[month] = r.close; // 날짜 오름차순이므로 마지막에 덮어쓴 값이 그 달의 마지막 값이다
+    });
+    return byMonth;
+  }
+
+  var macroSeriesCache = {}; // key -> { byMonth } (한 번 받으면 다시 안 받는다)
+
+  function ensureMacroSeries(key) {
+    if (macroSeriesCache[key]) return Promise.resolve(macroSeriesCache[key]);
+    return fetchPriceFileId(key).then(function (fileId) {
+      if (!fileId) return Promise.reject(new Error(key + ": 아직 수집한 자료가 없습니다"));
+      return fetch(URLS.getPrice + "?id=" + encodeURIComponent(fileId)).then(function (res) {
+        if (!res.ok) throw new Error(key + ": 응답 코드 " + res.status);
+        return res.text();
+      }).then(function (text) {
+        var byMonth = resampleMonthly(parsePriceRows(text));
+        macroSeriesCache[key] = { byMonth: byMonth };
+        return macroSeriesCache[key];
+      });
+    });
+  }
+
+  var marketIndicatorsChecklist = document.getElementById("market-indicators-checklist");
+  var marketIndicatorsChartHost = document.getElementById("market-indicators-chart");
+  var marketIndicatorsStatus = document.getElementById("market-indicators-status");
+  var marketIndicatorsColorByKey = {};
+  MACRO_SERIES.forEach(function (s, idx) { marketIndicatorsColorByKey[s.key] = PALETTE[idx % PALETTE.length]; });
+  var marketIndicatorsCheckboxes = {};
+
+  MACRO_SERIES.forEach(function (s) {
+    var label = document.createElement("label");
+    var cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = true;
+    cb.addEventListener("change", renderMarketIndicatorsChart);
+    marketIndicatorsCheckboxes[s.key] = cb;
+    label.appendChild(cb);
+    var swatch = document.createElement("i");
+    swatch.style.background = marketIndicatorsColorByKey[s.key];
+    swatch.style.display = "inline-block";
+    swatch.style.width = "10px";
+    swatch.style.height = "10px";
+    swatch.style.borderRadius = "2px";
+    label.appendChild(swatch);
+    label.appendChild(document.createTextNode(" " + s.label + (s.unit ? "(" + s.unit + ")" : "")));
+    marketIndicatorsChecklist.appendChild(label);
+  });
+
+  function renderMarketIndicatorsChart() {
+    var checked = MACRO_SERIES.filter(function (s) { return marketIndicatorsCheckboxes[s.key].checked; });
+    if (checked.length === 0) {
+      marketIndicatorsChartHost.innerHTML = "";
+      setStatus(marketIndicatorsStatus, "", "표시할 항목을 하나 이상 체크하세요.");
+      return;
+    }
+    setStatus(marketIndicatorsStatus, "", "불러오는 중입니다...");
+    Promise.all(checked.map(function (s) {
+      return ensureMacroSeries(s.key).then(
+        function (cached) { return { ok: true, s: s, byMonth: cached.byMonth }; },
+        function (err) { return { ok: false, s: s, error: err.message }; }
+      );
+    })).then(function (results) {
+      var ready = results.filter(function (r) { return r.ok; });
+      var missing = results.filter(function (r) { return !r.ok; });
+
+      marketIndicatorsChartHost.innerHTML = "";
+      if (ready.length > 0) {
+        var seriesForChart = ready.map(function (r) {
+          var values = MONTH_GRID.map(function (m) {
+            var v = r.byMonth[m];
+            return v === undefined ? null : v;
+          });
+          return { key: r.s.key, label: r.s.label, axis: r.s.axis, unit: r.s.unit, color: marketIndicatorsColorByKey[r.s.key], values: values };
+        });
+        var chart = buildMacroChart(seriesForChart, MONTH_GRID);
+        if (chart) marketIndicatorsChartHost.appendChild(chart);
+      }
+
+      if (missing.length > 0) {
+        setStatus(
+          marketIndicatorsStatus, "err",
+          missing.map(function (m) { return m.s.label; }).join(", ") + ": 아직 수집한 자료가 없습니다. 위 버튼으로 받아오세요."
+        );
+      } else {
+        setStatus(marketIndicatorsStatus, "ok", ready.length + "개 항목을 그렸습니다.");
+      }
+    });
+  }
+  renderMarketIndicatorsChart();
+
+  // 지수(왼쪽 축)와 금리(오른쪽 축)는 단위가 달라 한 축에 같이 못
+  // 그린다. 두 축 모두 같은 t(0~1, 위에서 아래로)에서 그리드선을
+  // 공유하고, 각 축의 값만 그 t에 맞춰 따로 계산해 좌우에 적는다.
+  function buildMacroChart(seriesForChart, months) {
+    var width = 640, height = 300, padding = { top: 10, right: 60, bottom: 28, left: 60 };
+    var plotW = width - padding.left - padding.right;
+    var plotH = height - padding.top - padding.bottom;
+
+    var leftValues = [], rightValues = [];
+    seriesForChart.forEach(function (s) {
+      s.values.forEach(function (v) {
+        if (v === null) return;
+        (s.axis === "left" ? leftValues : rightValues).push(v);
+      });
+    });
+    var minLeft = leftValues.length ? Math.min.apply(null, leftValues) : 0;
+    var maxLeft = leftValues.length ? Math.max.apply(null, leftValues) : 1;
+    if (minLeft === maxLeft) { minLeft -= 1; maxLeft += 1; }
+    var minRight = rightValues.length ? Math.min.apply(null, rightValues) : 0;
+    var maxRight = rightValues.length ? Math.max.apply(null, rightValues) : 1;
+    if (minRight === maxRight) { minRight -= 1; maxRight += 1; }
+
+    function xAt(i) { return padding.left + (months.length <= 1 ? 0 : (i / (months.length - 1)) * plotW); }
+    function yAtLeft(v) { return padding.top + plotH - ((v - minLeft) / (maxLeft - minLeft)) * plotH; }
+    function yAtRight(v) { return padding.top + plotH - ((v - minRight) / (maxRight - minRight)) * plotH; }
+    function yAtFor(s) { return s.axis === "left" ? yAtLeft : yAtRight; }
+    function fmtFor(s) { return s.unit ? function (v) { return v.toFixed(2) + s.unit; } : function (v) { return fmtNumber(v); }; }
+
+    var svgNS = "http://www.w3.org/2000/svg";
+    var svg = document.createElementNS(svgNS, "svg");
+    svg.setAttribute("viewBox", "0 0 " + width + " " + height);
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", "시장 지표 월별 추이");
+
+    [0, 0.25, 0.5, 0.75, 1].forEach(function (t) {
+      var y = padding.top + plotH * t;
+      var line = document.createElementNS(svgNS, "line");
+      line.setAttribute("x1", padding.left);
+      line.setAttribute("x2", width - padding.right);
+      line.setAttribute("y1", y);
+      line.setAttribute("y2", y);
+      line.setAttribute("stroke", "currentColor");
+      line.setAttribute("stroke-opacity", "0.12");
+      svg.appendChild(line);
+
+      if (leftValues.length) {
+        var leftLabel = document.createElementNS(svgNS, "text");
+        leftLabel.setAttribute("x", padding.left - 6);
+        leftLabel.setAttribute("y", y + 4);
+        leftLabel.setAttribute("text-anchor", "end");
+        leftLabel.setAttribute("font-size", "10");
+        leftLabel.setAttribute("fill", "currentColor");
+        leftLabel.setAttribute("opacity", "0.6");
+        leftLabel.textContent = fmtNumber(maxLeft - (maxLeft - minLeft) * t);
+        svg.appendChild(leftLabel);
+      }
+      if (rightValues.length) {
+        var rightLabel = document.createElementNS(svgNS, "text");
+        rightLabel.setAttribute("x", width - padding.right + 6);
+        rightLabel.setAttribute("y", y + 4);
+        rightLabel.setAttribute("text-anchor", "start");
+        rightLabel.setAttribute("font-size", "10");
+        rightLabel.setAttribute("fill", "currentColor");
+        rightLabel.setAttribute("opacity", "0.6");
+        rightLabel.textContent = (maxRight - (maxRight - minRight) * t).toFixed(2) + "%";
+        svg.appendChild(rightLabel);
+      }
+    });
+
+    var xTickCount = Math.min(6, months.length);
+    for (var ti = 0; ti < xTickCount; ti++) {
+      var idx2 = xTickCount <= 1 ? 0 : Math.round((ti / (xTickCount - 1)) * (months.length - 1));
+      var xTickText = document.createElementNS(svgNS, "text");
+      xTickText.setAttribute("x", xAt(idx2));
+      xTickText.setAttribute("y", height - 8);
+      xTickText.setAttribute("text-anchor", ti === 0 ? "start" : ti === xTickCount - 1 ? "end" : "middle");
+      xTickText.setAttribute("font-size", "10");
+      xTickText.setAttribute("fill", "currentColor");
+      xTickText.setAttribute("opacity", "0.6");
+      xTickText.textContent = months[idx2];
+      svg.appendChild(xTickText);
+    }
+
+    var hoverSeries = [];
+    seriesForChart.forEach(function (s) {
+      var yAt = yAtFor(s);
+      var pixelPoints = [];
+      s.values.forEach(function (v, i) {
+        if (v === null) return;
+        pixelPoints.push({ x: xAt(i), y: yAt(v), value: v, i: i });
+      });
+      hoverSeries.push({ label: s.label, unit: s.unit, color: s.color, values: s.values });
+
+      var path = document.createElementNS(svgNS, "path");
+      path.setAttribute("d", smoothPathD(pixelPoints));
+      path.setAttribute("fill", "none");
+      path.setAttribute("stroke", s.color);
+      path.setAttribute("stroke-width", "2");
+      svg.appendChild(path);
+
+      drawSeriesExtremes(svg, svgNS, pixelPoints, s.color, yAt, padding.left, width - padding.right, padding.top + 8, height - padding.bottom - 4, fmtFor(s));
+    });
+
+    var wrap = document.createElement("div");
+    wrap.className = "chart-wrap";
+    wrap.appendChild(svg);
+
+    if (hoverSeries.length > 0 && months.length > 1) {
+      var tooltip = document.createElement("div");
+      tooltip.className = "chart-tooltip";
+      wrap.appendChild(tooltip);
+
+      var guideLine = document.createElementNS(svgNS, "line");
+      guideLine.setAttribute("y1", padding.top);
+      guideLine.setAttribute("y2", padding.top + plotH);
+      guideLine.setAttribute("stroke", "currentColor");
+      guideLine.setAttribute("stroke-opacity", "0.35");
+      guideLine.style.display = "none";
+      svg.appendChild(guideLine);
+
+      var hitRect = document.createElementNS(svgNS, "rect");
+      hitRect.setAttribute("x", padding.left);
+      hitRect.setAttribute("y", padding.top);
+      hitRect.setAttribute("width", plotW);
+      hitRect.setAttribute("height", plotH);
+      hitRect.setAttribute("fill", "transparent");
+      svg.appendChild(hitRect);
+
+      hitRect.addEventListener("mousemove", function (evt) {
+        var box = svg.getBoundingClientRect();
+        var scaleX = width / box.width;
+        var mouseX = (evt.clientX - box.left) * scaleX;
+        var frac = Math.max(0, Math.min(1, (mouseX - padding.left) / plotW));
+        var idx = Math.round(frac * (months.length - 1));
+
+        var gx = xAt(idx).toFixed(1);
+        guideLine.setAttribute("x1", gx);
+        guideLine.setAttribute("x2", gx);
+        guideLine.style.display = "";
+
+        tooltip.innerHTML = "";
+        var dateDiv = document.createElement("div");
+        dateDiv.className = "tt-date";
+        dateDiv.textContent = months[idx];
+        tooltip.appendChild(dateDiv);
+        hoverSeries.forEach(function (s) {
+          var v = s.values[idx];
+          var row = document.createElement("div");
+          row.className = "tt-row";
+          var sw = document.createElement("i");
+          sw.style.background = s.color;
+          row.appendChild(sw);
+          row.appendChild(document.createTextNode(
+            s.label + ": " + (v === null ? "자료 없음" : (s.unit ? v.toFixed(2) + s.unit : fmtNumber(v)))
+          ));
+          tooltip.appendChild(row);
+        });
+
+        var wrapBox = wrap.getBoundingClientRect();
+        var left = (evt.clientX - wrapBox.left) + 14;
+        var top = (evt.clientY - wrapBox.top) + 14;
+        if (left + 200 > wrapBox.width) left = (evt.clientX - wrapBox.left) - 14 - 200;
+        tooltip.style.left = Math.max(0, left) + "px";
+        tooltip.style.top = top + "px";
+        tooltip.style.display = "block";
+      });
+      hitRect.addEventListener("mouseleave", function () {
+        guideLine.style.display = "none";
+        tooltip.style.display = "none";
+      });
+    }
+
+    return wrap;
+  }
+
+  var marketIndicatorsForm = document.getElementById("market-indicators-fetch");
+  var marketIndicatorsPollTimer = null;
+  function setMarketIndicatorsPollTimer(t) { marketIndicatorsPollTimer = t; }
+
+  marketIndicatorsForm.addEventListener("click", function () {
+    if (marketIndicatorsPollTimer) {
+      clearTimeout(marketIndicatorsPollTimer);
+      marketIndicatorsPollTimer = null;
+    }
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+
+    var indexSymbols = MACRO_SERIES.filter(function (s) { return s.source === "야후"; }).map(function (s) { return s.key; }).join(",");
+    var fredSeries = MACRO_SERIES.filter(function (s) { return s.source === "FRED"; }).map(function (s) { return s.key; }).join(",");
+
+    setStatus(marketIndicatorsStatus, "", "요청을 보내는 중입니다...");
+
+    var indexDone = false, macroDone = false, anyFail = false;
+    function finishIfDone() {
+      if (!indexDone || !macroDone) return;
+      if (anyFail) {
+        setStatus(marketIndicatorsStatus, "err", "수집 중 일부가 실패했습니다. GitHub Actions 로그를 확인해야 합니다.");
+        notifyIfPermitted("시장 지표 수집 실패", "일부 항목 수집이 실패했습니다.");
+      } else {
+        setStatus(marketIndicatorsStatus, "ok", "완료됐습니다. 체크한 항목을 다시 받아 그렸습니다.");
+        notifyIfPermitted("시장 지표 수집 완료", "받아오기가 끝났습니다.");
+      }
+      macroSeriesCache = {};
+      priceFileIdBySymbol = {};
+      renderMarketIndicatorsChart();
+    }
+
+    fetch(URLS.checkRun + "?workflow=update-prices.yml")
+      .then(function (res) { return res.ok ? res.json() : []; })
+      .catch(function () { return []; })
+      .then(function (beforeRuns) {
+        var previousRunId = beforeRuns && beforeRuns[0] ? beforeRuns[0].id : null;
+        return fetch(URLS.updatePrices, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ symbols: indexSymbols, full_refresh: false }),
+        }).then(function (res) {
+          if (!res.ok) throw new Error("응답 코드 " + res.status);
+          pollWorkflowRun("update-prices.yml", marketIndicatorsStatus, previousRunId, 1, setMarketIndicatorsPollTimer, function (latest) {
+            if (latest.conclusion !== "success") anyFail = true;
+            indexDone = true;
+            finishIfDone();
+          });
+        });
+      })
+      .catch(function (err) {
+        anyFail = true;
+        indexDone = true;
+        finishIfDone();
+      });
+
+    fetch(URLS.checkRun + "?workflow=fetch-macro.yml")
+      .then(function (res) { return res.ok ? res.json() : []; })
+      .catch(function () { return []; })
+      .then(function (beforeRuns) {
+        var previousRunId = beforeRuns && beforeRuns[0] ? beforeRuns[0].id : null;
+        return fetch(URLS.updateMacro, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ series: fredSeries, full_refresh: false }),
+        }).then(function (res) {
+          if (!res.ok) throw new Error("응답 코드 " + res.status);
+          pollWorkflowRun("fetch-macro.yml", marketIndicatorsStatus, previousRunId, 1, setMarketIndicatorsPollTimer, function (latest) {
+            if (latest.conclusion !== "success") anyFail = true;
+            macroDone = true;
+            finishIfDone();
+          });
+        });
+      })
+      .catch(function (err) {
+        anyFail = true;
+        macroDone = true;
+        finishIfDone();
+      });
+  });
 
   // ── 3. 전략 비교 입력 ──────────────────────────────────
   var strategyListEl = document.getElementById("strategy-list");
@@ -2144,7 +2529,6 @@
     }
   }
 
-  var PALETTE = ["#2f6f65", "#b5502e", "#4a6fa5", "#8a5a9e", "#c98f1c", "#5a8f4a", "#a5455a", "#3d8f8a"];
 
   // 매수는 빨간 점, 매도는 파란 점으로 그린다(2026-09-23). 익절·손절은
   // 색으로 나누지 않고 말풍선 글자로만 구분한다. buildChart(전략비교·
@@ -2229,8 +2613,9 @@
   // 시리즈 하나의 최저점·최고점에 삼각 기호와 글자를, 평균값에는 점선과
   // 글자를 그린다. pixelPoints는 [{x, y, value}] 형태로 이미 화면 좌표로
   // 바꾼 값이다.
-  function drawSeriesExtremes(svg, svgNS, pixelPoints, color, yAt, plotLeft, plotRight, clampTop, clampBottom) {
+  function drawSeriesExtremes(svg, svgNS, pixelPoints, color, yAt, plotLeft, plotRight, clampTop, clampBottom, fmtFn) {
     if (pixelPoints.length < 2) return;
+    fmtFn = fmtFn || function (v) { return fmtNumber(v); };
     var minP = pixelPoints[0], maxP = pixelPoints[0], sum = 0;
     pixelPoints.forEach(function (p) {
       if (p.value < minP.value) minP = p;
@@ -2252,7 +2637,7 @@
     svg.appendChild(avgLine);
     svg.appendChild(svgLabelWithBg(
       svgNS, plotRight - 2, Math.max(clampTop, Math.min(clampBottom, avgY)),
-      "평균 " + fmtNumber(Math.round(avg)), color, "end"
+      "평균 " + fmtFn(avg), color, "end"
     ));
 
     function placeMarker(p, up, text, dy) {
@@ -2270,8 +2655,8 @@
       var anchor = p.x - plotLeft < edgeMargin ? "start" : plotRight - p.x < edgeMargin ? "end" : "middle";
       svg.appendChild(svgLabelWithBg(svgNS, p.x, labelY, text, color, anchor));
     }
-    placeMarker(maxP, true, "최고 " + fmtNumber(Math.round(maxP.value)), -14);
-    placeMarker(minP, false, "최저 " + fmtNumber(Math.round(minP.value)), 16);
+    placeMarker(maxP, true, "최고 " + fmtFn(maxP.value), -14);
+    placeMarker(minP, false, "최저 " + fmtFn(minP.value), 16);
   }
 
   function buildChart(series, colorByKey) {

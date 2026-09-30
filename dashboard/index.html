@@ -58,6 +58,18 @@
       <div id="price-detail"></div>
     </section>
 
+    <section class="card" id="section-market-indicators">
+      <h2>시장 지표</h2>
+      <p class="desc">미국채 3·5·10년물 금리, 미국 기준금리, S&amp;P500, 나스닥종합 지수를
+        월별로(최근 10년) 받아 한 그래프에 겹쳐 봅니다. 국채 금리와 기준금리는 FRED에서,
+        지수 둘은 야후에서 받으며 실제 처리는 GitHub Actions에서 진행됩니다. 아래 목록에서
+        체크한 항목만 그래프에 그리고, 체크를 지우면 그 선이 사라집니다.</p>
+      <button type="button" id="market-indicators-fetch">시장 지표 받아오기</button>
+      <div class="status" id="market-indicators-status" role="status" aria-live="polite"></div>
+      <div class="chart-checklist" id="market-indicators-checklist"></div>
+      <div id="market-indicators-chart"></div>
+    </section>
+
   </div>
 
   <div class="tab-panel" data-panel="strategy" hidden>
