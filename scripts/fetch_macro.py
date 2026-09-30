@@ -50,7 +50,9 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _update_one(service, root_folder_id: str, series_id: str, full_refresh: bool, start_override: date | None) -> None:
+def _update_one(
+    service, root_folder_id: str, series_id: str, full_refresh: bool, start_override: date | None, api_key: str
+) -> None:
     series_id = series_id.strip().upper()
     if not series_id:
         return
@@ -66,7 +68,7 @@ def _update_one(service, root_folder_id: str, series_id: str, full_refresh: bool
         if start > today:
             print(f"{series_id}: 이미 최신입니다 (마지막 날짜 {last_date}).")
             return
-        new_rows = fetch_daily_series(series_id, start, today)
+        new_rows = fetch_daily_series(series_id, start, today, api_key)
         if new_rows.empty:
             print(f"{series_id}: 새로 받은 날짜가 없습니다 (마지막 날짜 {last_date}).")
             return
@@ -74,7 +76,7 @@ def _update_one(service, root_folder_id: str, series_id: str, full_refresh: bool
         print(f"{series_id}: {len(new_rows)}개 날짜를 새로 받았습니다 ({start} ~ {today}).")
     else:
         start = start_override or (today - timedelta(days=365 * YEARS_OF_HISTORY))
-        combined = fetch_daily_series(series_id, start, today)
+        combined = fetch_daily_series(series_id, start, today, api_key)
         if combined.empty:
             print(f"{series_id}: FRED에서 받은 데이터가 없습니다. 시리즈 코드를 확인하세요.")
             return
@@ -88,6 +90,9 @@ def main() -> None:
     full_refresh = args.full_refresh.strip().lower() == "true"
     start_override = date.fromisoformat(args.start) if args.start.strip() else None
     root_folder_id = os.environ.get("GDRIVE_PRICES_FOLDER_ID", DEFAULT_PRICES_FOLDER_ID)
+    api_key = os.environ.get("FRED_API_KEY", "").strip()
+    if not api_key:
+        raise SystemExit("FRED_API_KEY 환경변수가 없습니다.")
 
     service = _build_service()
     series_list = [s for s in args.series.split(",") if s.strip()]
@@ -95,7 +100,7 @@ def main() -> None:
         raise SystemExit("시리즈를 하나도 못 읽었습니다. --series를 확인하세요.")
 
     for series_id in series_list:
-        _update_one(service, root_folder_id, series_id, full_refresh, start_override)
+        _update_one(service, root_folder_id, series_id, full_refresh, start_override, api_key)
 
 
 if __name__ == "__main__":

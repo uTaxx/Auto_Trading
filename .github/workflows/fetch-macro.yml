@@ -45,5 +45,6 @@ jobs:
           START: ${{ github.event.inputs.start }}
           GDRIVE_SA_KEY_JSON: ${{ secrets.GDRIVE_SA_KEY_JSON }}
           GDRIVE_IMPERSONATE_EMAIL: master@sondullab.com
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
         run: |
           python scripts/fetch_macro.py --series "$SERIES" --full-refresh "$FULL_REFRESH" --start "$START"
