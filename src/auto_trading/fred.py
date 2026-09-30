@@ -22,9 +22,13 @@ import requests
 GRAPH_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
 
 
-def fetch_daily_series(series_id: str, start: date, end: date, timeout: float = 15.0) -> pd.DataFrame:
+def fetch_daily_series(series_id: str, start: date, end: date, timeout: float = 60.0) -> pd.DataFrame:
     """series_id는 FRED 시리즈 코드 그대로 쓴다(국채 10년물은 DGS10, 기준금리는
-    FEDFUNDS)."""
+    FEDFUNDS).
+
+    fredgraph.csv는 야후 차트 API보다 응답이 느리다. 10년치 구간을 한 번에
+    받을 때 15초 제한으로 실제 타임아웃이 났다(2026-09-30, GitHub Actions
+    실행 36699155014). 60초로 늘렸다."""
     response = requests.get(
         GRAPH_CSV_URL,
         params={"id": series_id, "cosd": start.isoformat(), "coed": end.isoformat()},
