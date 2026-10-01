@@ -980,6 +980,7 @@
     { key: "DGS5", label: "미국채 5년물 금리", axis: "right", unit: "%", source: "FRED" },
     { key: "DGS10", label: "미국채 10년물 금리", axis: "right", unit: "%", source: "FRED" },
     { key: "FEDFUNDS", label: "미국 기준금리", axis: "right", unit: "%", source: "FRED" },
+    { key: "M2SL", label: "미국 M2 통화량(10억 달러)", axis: "left", unit: "", source: "FRED" },
   ];
   var MACRO_MONTHS = 120; // 최근 10년, 이번 달 포함
 
